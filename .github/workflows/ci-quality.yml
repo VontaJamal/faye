@@ -1,0 +1,49 @@
+name: CI Quality
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches:
+      - main
+      - cx/**
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Docs Contract
+        run: ./scripts/docs-contract-check.sh
+
+      - name: Accessibility Baseline
+        run: ./scripts/accessibility-check.sh
+
+      - name: Seven Shadow Double Pass
+        run: ./scripts/seven-shadow-test.sh 2
+
+      - name: Security Audit (high+)
+        run: npm audit --audit-level=high

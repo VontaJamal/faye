@@ -96,7 +96,9 @@ open http://127.0.0.1:4587
 - `scripts/install-speaker.sh`
 - `scripts/voice-picker.sh`
 - `scripts/seven-shadow-test.sh`
+- `.github/workflows/ci-quality.yml`
 - `references/supported-voices.md`
 - `references/troubleshooting.md`
 
 - `references/openclaw-telegram-protocol.md`
+- `references/reliability-slo.md`

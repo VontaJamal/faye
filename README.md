@@ -87,6 +87,12 @@ Run it with:
 
 Release gate: critical matrix must pass twice consecutively.
 
+## CI and Reliability
+
+- CI workflow: `.github/workflows/ci-quality.yml`
+- Quality gates: build, tests, accessibility baseline, docs contract, Seven Shadow double-pass, npm high-severity audit
+- Reliability/SLO runbook: `references/reliability-slo.md`
+
 ## Rinshari-UI Integration
 
 Faye now consumes Rinshari doctrine via `design/rinshari-ui`.

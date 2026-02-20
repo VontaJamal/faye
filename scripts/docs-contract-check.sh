@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 required=(
+  ".github/workflows/ci-quality.yml"
   "scripts/install.sh"
   "scripts/faye"
   "scripts/install-listener.sh"
@@ -12,6 +13,7 @@ required=(
   "scripts/install-speaker.sh"
   "scripts/speak-remote.sh"
   "scripts/telegram-bridge-control.sh"
+  "references/reliability-slo.md"
   "references/supported-voices.md"
   "references/openclaw-telegram-protocol.md"
 )
