@@ -1,0 +1,35 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  auto-triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add triage labels for bugs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = new Set(issue.labels.map((l) => l.name));
+            const additions = [];
+
+            if (labels.has("bug")) {
+              if (!labels.has("triage-needed")) additions.push("triage-needed");
+              if (!labels.has("alpha-feedback")) additions.push("alpha-feedback");
+            }
+
+            if (additions.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: additions
+              });
+            }

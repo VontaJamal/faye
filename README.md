@@ -4,6 +4,16 @@ Faye is an always-on voice layer for OpenClaw.
 
 You choose your wake word. Faye listens. Faye speaks back.
 
+## Public Alpha Live
+
+1. Install in one command:
+```bash
+curl -fsSL https://raw.githubusercontent.com/VontaJamal/faye/main/scripts/bootstrap.sh | bash
+```
+2. Follow quickstart: `docs/public-alpha-kit.md`
+3. Report bugs in the alpha feedback issue: `https://github.com/VontaJamal/faye/issues/1`
+4. Join tester cohort thread: `https://github.com/VontaJamal/faye/issues/2`
+
 ## Start Here (5-Minute Win)
 
 This is the fastest path for a new person:
@@ -41,13 +51,7 @@ Expected: audible playback.
 
 ## Install In One Command
 
-If you want a single command that clones and installs:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/VontaJamal/faye/main/scripts/bootstrap.sh | bash
-```
-
-More options: `docs/distribution.md`
+If you want more install options: `docs/distribution.md`
 
 ## 3-step Quick Start
 
@@ -100,6 +104,8 @@ Expected output includes:
 - `dashboard: running`
 - `telegram-bridge: running` (if Telegram is configured)
 
+Reboot/login proof runbook: `docs/always-on-proof.md`
+
 ## Telegram bridge (Optional)
 
 Telegram bridge is optional.
@@ -147,6 +153,9 @@ Scheduled reliability smoke:
 npm run canary
 ```
 
+7-day burn-in runbook: `docs/burn-in.md`
+Burn-in tracker issue: `https://github.com/VontaJamal/faye/issues/3`
+
 ## Seven Shadow System
 
 Faye uses the open-source Seven Shadow System as its AI review guard.
@@ -168,6 +177,7 @@ npm run guard:seven-shadow -- --policy .seven-shadow/policy-smoke.json --event g
 - Start here: `CONTRIBUTING.md`
 - Roadmap: `docs/roadmap.md`
 - Open issue templates: `.github/ISSUE_TEMPLATE`
+- Triage playbook: `docs/triage.md`
 
 ## For Maintainers (Optional)
 

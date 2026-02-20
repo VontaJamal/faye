@@ -1,0 +1,49 @@
+name: Burn-In 7-Day
+
+on:
+  schedule:
+    - cron: "20 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  burn-in:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Burn-in window check
+        run: |
+          START_DATE="2026-02-20"
+          END_DATE="2026-02-27"
+          TODAY="$(date -u +%Y-%m-%d)"
+
+          if [[ "$TODAY" < "$START_DATE" || "$TODAY" > "$END_DATE" ]]; then
+            echo "Outside burn-in window ($START_DATE to $END_DATE)."
+            exit 0
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Run Burn-In Day
+        run: ./scripts/burn-in-day.sh
+
+      - name: Upload Burn-In Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: burn-in-report-${{ github.run_id }}
+          path: .faye/reports/burn-in-*.md

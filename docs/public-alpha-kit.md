@@ -100,3 +100,8 @@ For public testing, share these three links/paths:
 1. `README.md`
 2. `docs/public-alpha-kit.md`
 3. `references/troubleshooting.md`
+
+Feedback and tester threads:
+
+1. `https://github.com/VontaJamal/faye/issues/1`
+2. `https://github.com/VontaJamal/faye/issues/2`

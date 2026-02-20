@@ -13,6 +13,8 @@
     "test": "npm run build:app && node --test dist/app/test/*.test.js",
     "canary": "./scripts/canary-smoke.sh",
     "security:check": "./scripts/security-check.sh",
+    "always-on:proof": "./scripts/always-on-proof.sh",
+    "burn-in:day": "./scripts/burn-in-day.sh",
     "guard:seven-shadow": "npm --prefix governance/seven-shadow-system ci && npm --prefix governance/seven-shadow-system run build && node governance/seven-shadow-system/dist/src/sevenShadowSystem.js",
     "guard:ai-review": "npm run guard:seven-shadow -- --policy .seven-shadow/policy.json",
     "demo": "./scripts/demo.sh"
