@@ -159,6 +159,8 @@ npm run canary
 
 7-day burn-in runbook: `docs/burn-in.md`
 Burn-in tracker issue: `https://github.com/VontaJamal/faye/issues/3`
+Fail-closed PR gate during burn-in: `.github/workflows/burn-in-gate.yml`
+Daily SLO check script: `./scripts/slo-eval.sh`
 
 ## Seven Shadow System
 

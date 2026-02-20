@@ -7,11 +7,12 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   burn-in:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 65
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,31 +20,91 @@ jobs:
           submodules: recursive
 
       - name: Burn-in window check
+        id: window
         run: |
-          START_DATE="2026-02-20"
+          START_DATE="2026-02-21"
           END_DATE="2026-02-27"
           TODAY="$(date -u +%Y-%m-%d)"
+          echo "today=${TODAY}" >> "$GITHUB_OUTPUT"
 
           if [[ "$TODAY" < "$START_DATE" || "$TODAY" > "$END_DATE" ]]; then
             echo "Outside burn-in window ($START_DATE to $END_DATE)."
-            exit 0
+            echo "run_burn_in=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_burn_in=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Setup Node
+        if: steps.window.outputs.run_burn_in == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
 
       - name: Install
+        if: steps.window.outputs.run_burn_in == 'true'
         run: npm ci
 
+      - name: Build API Runtime
+        if: steps.window.outputs.run_burn_in == 'true'
+        run: npm run build:app
+
+      - name: Start Local API
+        if: steps.window.outputs.run_burn_in == 'true'
+        run: |
+          mkdir -p .faye/reports
+          nohup npm run start:api > .faye/reports/burn-in-api.log 2>&1 &
+          echo "$!" > .faye/reports/burn-in-api.pid
+
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:4587/v1/health >/dev/null; then
+              echo "API is ready."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "API failed to become healthy."
+          tail -n 200 .faye/reports/burn-in-api.log || true
+          exit 1
+
       - name: Run Burn-In Day
+        id: burnin
+        if: steps.window.outputs.run_burn_in == 'true'
+        continue-on-error: true
         run: ./scripts/burn-in-day.sh
+
+      - name: Post Burn-In Status to Issue #3
+        if: always() && steps.window.outputs.run_burn_in == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BURN_IN_ISSUE_NUMBER: "3"
+        run: |
+          SUMMARY_PATH="$(cat .faye/reports/burn-in-latest-summary.txt 2>/dev/null || true)"
+          if [[ -z "$SUMMARY_PATH" || ! -f "$SUMMARY_PATH" ]]; then
+            echo "Missing burn-in summary path; cannot update Issue #3."
+            exit 1
+          fi
+          BURN_IN_SUMMARY_PATH="$SUMMARY_PATH" node ./scripts/burn-in-issue-update.mjs
+
+      - name: Stop Local API
+        if: always() && steps.window.outputs.run_burn_in == 'true'
+        run: |
+          if [[ -f .faye/reports/burn-in-api.pid ]]; then
+            kill "$(cat .faye/reports/burn-in-api.pid)" >/dev/null 2>&1 || true
+          fi
 
       - name: Upload Burn-In Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: burn-in-report-${{ github.run_id }}
-          path: .faye/reports/burn-in-*.md
+          path: .faye/reports/*
+
+      - name: Fail Closed if Burn-In Failed
+        if: steps.window.outputs.run_burn_in == 'true'
+        run: |
+          if [[ "${{ steps.burnin.outcome }}" != "success" ]]; then
+            echo "Burn-in failed. Merge policy remains blocked."
+            exit 1
+          fi

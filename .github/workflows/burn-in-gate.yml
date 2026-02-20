@@ -1,0 +1,52 @@
+name: Burn-In Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Burn-in window check
+        id: window
+        run: |
+          START_DATE="2026-02-21"
+          END_DATE="2026-02-27"
+          TODAY="$(date -u +%Y-%m-%d)"
+
+          echo "today=${TODAY}" >> "$GITHUB_OUTPUT"
+          if [[ "$TODAY" < "$START_DATE" || "$TODAY" > "$END_DATE" ]]; then
+            echo "run_gate=false" >> "$GITHUB_OUTPUT"
+            echo "Outside burn-in window ($START_DATE to $END_DATE)."
+          else
+            echo "run_gate=true" >> "$GITHUB_OUTPUT"
+            echo "Burn-in gate enforcement active."
+          fi
+
+      - name: Setup Node
+        if: steps.window.outputs.run_gate == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify same-day burn-in marker from Issue #3
+        if: steps.window.outputs.run_gate == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BURN_IN_ISSUE_NUMBER: "3"
+          BURN_IN_START_DATE: "2026-02-21"
+          BURN_IN_END_DATE: "2026-02-27"
+        run: node ./scripts/burn-in-gate-check.mjs
+
+      - name: Gate status outside window
+        if: steps.window.outputs.run_gate != 'true'
+        run: echo "Burn-in gate not required for this date."

@@ -1,0 +1,41 @@
+name: Alpha Triage Daily
+
+on:
+  schedule:
+    - cron: "40 15 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  triage-sla:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run triage SLA check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIAGE_SLA_REPORT_PATH: .faye/reports/triage-sla.json
+          ALPHA_FEEDBACK_ISSUE_NUMBER: "1"
+          TESTER_COHORT_ISSUE_NUMBER: "2"
+          TRIAGE_SEVERITY_SLA_HOURS: "24"
+        run: |
+          mkdir -p .faye/reports
+          node ./scripts/triage-sla-check.mjs
+
+      - name: Upload triage SLA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-triage-sla-${{ github.run_id }}
+          path: .faye/reports/triage-sla.json
