@@ -54,4 +54,8 @@ if [[ "$command_name" == "setup" ]]; then
 fi
 
 ensure_build
-node "$ROOT_DIR/dist/app/cli.js" "$@" "${extra_args[@]}"
+if [[ "${#extra_args[@]}" -gt 0 ]]; then
+  node "$ROOT_DIR/dist/app/cli.js" "$@" "${extra_args[@]}"
+else
+  node "$ROOT_DIR/dist/app/cli.js" "$@"
+fi
