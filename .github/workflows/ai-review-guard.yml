@@ -1,0 +1,53 @@
+name: AI Review Guard
+
+on:
+  pull_request_review:
+    types: [submitted, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  guard:
+    if: ${{ github.event_name != 'issue_comment' || github.event.issue.pull_request != null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build App
+        run: npm run build:app
+
+      - name: Enforce AI Review Guard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node dist/app/aiReviewGuard.js \
+            --policy .faye/ai-review-guard.policy.json \
+            --event "$GITHUB_EVENT_PATH" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --report .faye/reports/ai-review-guard-report.json
+
+      - name: Upload Guard Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-guard-report
+          path: .faye/reports/ai-review-guard-report.json
+          if-no-files-found: ignore

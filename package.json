@@ -10,7 +10,8 @@
     "start:api": "node dist/app/index.js",
     "start:bridge": "node dist/app/telegramBridge.js",
     "cli": "node dist/app/cli.js",
-    "test": "npm run build:app && node --test dist/app/test/*.test.js"
+    "test": "npm run build:app && node --test dist/app/test/*.test.js",
+    "guard:ai-review": "npm run build:app && node dist/app/aiReviewGuard.js --policy .faye/ai-review-guard.policy.json"
   },
   "engines": {
     "node": ">=20"

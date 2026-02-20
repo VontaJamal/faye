@@ -93,6 +93,20 @@ Release gate: critical matrix must pass twice consecutively.
 - Quality gates: build, tests, accessibility baseline, docs contract, Seven Shadow double-pass, npm high-severity audit
 - Reliability/SLO runbook: `references/reliability-slo.md`
 
+## AI Review Guard
+
+Maintainers can define custom block/detect policy for AI-like review content:
+
+- Policy file: `.faye/ai-review-guard.policy.json`
+- Workflow: `.github/workflows/ai-review-guard.yml`
+- Guide: `references/ai-review-guard.md`
+
+Run locally:
+
+```bash
+npm run guard:ai-review -- --event .faye/examples/pr_review_event.json --event-name pull_request_review
+```
+
 ## Rinshari-UI Integration
 
 Faye now consumes Rinshari doctrine via `design/rinshari-ui`.

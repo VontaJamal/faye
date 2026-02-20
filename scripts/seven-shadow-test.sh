@@ -22,6 +22,9 @@ run_matrix() {
 
   echo "[6] Documentation drift check"
   (cd "$ROOT_DIR" && ./scripts/docs-contract-check.sh)
+
+  echo "[7] AI review guard policy smoke"
+  (cd "$ROOT_DIR" && node dist/app/aiReviewGuard.js --policy .faye/ai-review-guard.policy.json --event .faye/examples/pr_review_event.json --event-name pull_request_review --report .faye/reports/ai-review-guard-local.json)
 }
 
 for i in $(seq 1 "$RUNS"); do

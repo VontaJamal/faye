@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "enforcement": "block",
+  "blockBotAuthors": true,
+  "blockedAuthors": [
+    "copilot-pull-request-reviewer[bot]"
+  ],
+  "allowedAuthors": [],
+  "scanPrBody": true,
+  "scanReviewBody": true,
+  "scanCommentBody": true,
+  "maxAiScore": 0.65,
+  "disclosureTag": "[AI-ASSISTED]",
+  "disclosureRequiredScore": 0.45,
+  "minHumanApprovals": 1,
+  "rules": [
+    {
+      "name": "explicit-ai-disclaimer",
+      "pattern": "\\bas an ai language model\\b",
+      "action": "block"
+    },
+    {
+      "name": "cannot-run-code-disclaimer",
+      "pattern": "\\bi can(?:not|'t) (?:run|execute) (?:code|commands)\\b",
+      "action": "block"
+    },
+    {
+      "name": "generic-template-overall",
+      "pattern": "\\boverall\\b",
+      "action": "score",
+      "weight": 0.18
+    },
+    {
+      "name": "generic-template-nit",
+      "pattern": "\\bnit:?\\b",
+      "action": "score",
+      "weight": 0.15
+    },
+    {
+      "name": "generic-template-great-work",
+      "pattern": "\\bgreat work\\b",
+      "action": "score",
+      "weight": 0.2
+    },
+    {
+      "name": "generic-template-consider-tests",
+      "pattern": "\\bconsider adding tests\\b",
+      "action": "score",
+      "weight": 0.22
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-02-20T21:14:24.848Z",
+  "eventName": "pull_request_review",
+  "policyPath": ".faye/ai-review-guard.policy.json",
+  "enforcement": "block",
+  "targetsScanned": 2,
+  "highestAiScore": 0,
+  "humanApprovals": {
+    "required": 1,
+    "actual": null,
+    "checked": false
+  },
+  "findings": [
+    {
+      "code": "GUARD_APPROVALS_SKIPPED",
+      "severity": "warn",
+      "message": "GITHUB_TOKEN unavailable; unable to verify human approvals"
+    }
+  ],
+  "decision": "warn",
+  "targets": [
+    {
+      "target": {
+        "source": "pr_body",
+        "referenceId": "pr:42",
+        "authorLogin": "repo-owner",
+        "authorType": "User",
+        "body": "This PR improves reliability and docs."
+      },
+      "aiScore": 0,
+      "matchedRules": [],
+      "findings": []
+    },
+    {
+      "target": {
+        "source": "review",
+        "referenceId": "review:101",
+        "authorLogin": "human-reviewer",
+        "authorType": "User",
+        "body": "Manual review complete. [AI-ASSISTED] I validated behavior and edge cases."
+      },
+      "aiScore": 0,
+      "matchedRules": [],
+      "findings": []
+    }
+  ]
+}

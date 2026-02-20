@@ -97,8 +97,10 @@ open http://127.0.0.1:4587
 - `scripts/voice-picker.sh`
 - `scripts/seven-shadow-test.sh`
 - `.github/workflows/ci-quality.yml`
+- `.github/workflows/ai-review-guard.yml`
 - `references/supported-voices.md`
 - `references/troubleshooting.md`
 
 - `references/openclaw-telegram-protocol.md`
 - `references/reliability-slo.md`
+- `references/ai-review-guard.md`

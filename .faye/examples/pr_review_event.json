@@ -1,0 +1,23 @@
+{
+  "action": "submitted",
+  "review": {
+    "id": 101,
+    "body": "Manual review complete. [AI-ASSISTED] I validated behavior and edge cases.",
+    "state": "approved",
+    "user": {
+      "login": "human-reviewer",
+      "type": "User"
+    }
+  },
+  "pull_request": {
+    "number": 42,
+    "body": "This PR improves reliability and docs.",
+    "user": {
+      "login": "repo-owner",
+      "type": "User"
+    }
+  },
+  "repository": {
+    "full_name": "VontaJamal/faye"
+  }
+}

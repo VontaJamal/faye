@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 required=(
+  ".github/workflows/ai-review-guard.yml"
   ".github/workflows/ci-quality.yml"
+  ".faye/ai-review-guard.policy.json"
   "scripts/install.sh"
   "scripts/faye"
   "scripts/install-listener.sh"
@@ -14,6 +16,7 @@ required=(
   "scripts/speak-remote.sh"
   "scripts/telegram-bridge-control.sh"
   "references/reliability-slo.md"
+  "references/ai-review-guard.md"
   "references/supported-voices.md"
   "references/openclaw-telegram-protocol.md"
 )
@@ -25,5 +28,17 @@ done
 grep -q "3-step" "$ROOT_DIR/README.md" || { echo "README missing 3-step onboarding text"; exit 1; }
 grep -q "Seven Shadow" "$ROOT_DIR/README.md" || { echo "README missing Seven Shadow doctrine"; exit 1; }
 grep -q "Telegram bridge" "$ROOT_DIR/README.md" || { echo "README missing Telegram bridge section"; exit 1; }
+grep -q "AI Review Guard" "$ROOT_DIR/README.md" || { echo "README missing AI Review Guard section"; exit 1; }
+
+node - <<'NODE'
+const fs = require("fs");
+const policy = JSON.parse(fs.readFileSync(".faye/ai-review-guard.policy.json", "utf8"));
+if (!Array.isArray(policy.rules) || policy.rules.length === 0) {
+  throw new Error("AI review policy must include at least one rule");
+}
+if (typeof policy.maxAiScore !== "number") {
+  throw new Error("AI review policy must define maxAiScore");
+}
+NODE
 
 echo "Docs contract checks passed."
