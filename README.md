@@ -6,6 +6,8 @@ You choose your wake word. Faye listens. Faye speaks back.
 
 ## Public Alpha Live
 
+Latest prerelease: `https://github.com/VontaJamal/faye/releases/tag/v1.2.0-alpha.2`
+
 1. Install in one command:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/VontaJamal/faye/main/scripts/bootstrap.sh | bash
