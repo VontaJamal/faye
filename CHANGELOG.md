@@ -2,6 +2,7 @@
 
 ## Unreleased - 2026-02-20
 
+- c7dbe80 docs: add public alpha kit onboarding and beginner troubleshooting
 - 1ed4c0f feat: add bridge idempotency, demo flow, and maintainer automation
 - 0765746 fix: harden setup UX, dashboard safety, and seven shadow integration
 - 79dd411 feat: adopt seven shadow system submodule as shareable guard foundation
