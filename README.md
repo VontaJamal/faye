@@ -2,31 +2,56 @@
 
 Faye is an always-on voice layer for OpenClaw.
 
-You choose your wake word, Faye listens for it, and Faye can speak back with ElevenLabs.
+You choose your wake word. Faye listens. Faye speaks back.
 
-## 3-step Quick Start
+## Start Here (5-Minute Win)
 
-1. Install everything:
+This is the fastest path for a new person:
+
+1. Install:
 ```bash
 ./scripts/install.sh
 ```
-2. Run setup:
+Expected output includes:
+- `Dependencies OK`
+- `Install complete. Open: http://127.0.0.1:4587`
+
+2. Setup:
 ```bash
 ./scripts/faye setup
 ```
-3. Open the dashboard:
+Expected output includes:
+- `Configured profile ...`
+
+3. Open dashboard:
 
 [http://127.0.0.1:4587](http://127.0.0.1:4587)
 
-That is the full 3-step install path.
+4. Verify health:
+```bash
+./scripts/faye doctor
+```
+Expected: JSON with `"ok": true`.
 
-## What Faye Does
+5. Verify voice output:
+```bash
+./scripts/speak.sh "Faye test voice"
+```
+Expected: audible playback.
 
-- Listens for your wake word
-- Supports multiple saved voice profiles
-- Lets you switch profiles in one click
-- Speaks responses with ElevenLabs
-- Runs as always-on user services after install
+## 3-step Quick Start
+
+1. `./scripts/install.sh`
+2. `./scripts/faye setup`
+3. Open [http://127.0.0.1:4587](http://127.0.0.1:4587)
+
+## Public Alpha Kit
+
+For onboarding other people quickly:
+
+- One-page quickstart: `docs/public-alpha-kit.md`
+- Troubleshooting: `references/troubleshooting.md`
+- Media pack notes: `docs/media/README.md`
 
 ## Everyday Commands
 
@@ -36,6 +61,27 @@ That is the full 3-step install path.
 - List profiles: `./scripts/faye profile list`
 - Speak test: `./scripts/speak.sh "Hello from Faye"`
 - One-command demo: `npm run demo`
+
+## Always-On Services
+
+After install, Faye auto-starts when you log in:
+
+- Listener: `./scripts/listener-control.sh status|restart`
+- Dashboard/API: `./scripts/dashboard-control.sh status|restart`
+- Telegram bridge: `./scripts/telegram-bridge-control.sh status|restart`
+
+Quick status check:
+
+```bash
+./scripts/listener-control.sh status
+./scripts/dashboard-control.sh status
+./scripts/telegram-bridge-control.sh status
+```
+
+Expected output includes:
+- `listener: running`
+- `dashboard: running`
+- `telegram-bridge: running` (if Telegram is configured)
 
 ## Telegram bridge (Optional)
 
@@ -49,20 +95,14 @@ If you use it, this is the loop:
 
 Protocol reference: `references/openclaw-telegram-protocol.md`
 
-## Always-On Services
-
-After install, Faye auto-starts when you log in:
-
-- Listener: `./scripts/listener-control.sh status|restart`
-- Dashboard/API: `./scripts/dashboard-control.sh status|restart`
-- Telegram bridge: `./scripts/telegram-bridge-control.sh status|restart`
-
 ## Onboarding Video / GIF
 
-Quick visual onboarding assets live here:
+Media folder:
 
-- GIF path: `docs/media/faye-onboarding.gif` (add your demo gif here)
-- Video link: add your short setup walkthrough URL here
+- `docs/media/faye-onboarding.gif`
+- `docs/media/faye-setup-walkthrough.md`
+
+Authoring notes: `docs/media/README.md`
 
 ## Seven Shadow Standard
 
