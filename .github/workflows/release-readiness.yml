@@ -1,0 +1,64 @@
+name: Release Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_label:
+        description: "Release label (example: v1.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Docs Contract
+        run: ./scripts/docs-contract-check.sh
+
+      - name: Seven Shadow Double Pass
+        run: ./scripts/seven-shadow-test.sh 2
+
+      - name: Release Checklist Summary
+        run: |
+          mkdir -p .faye/reports
+          cat > .faye/reports/release-readiness-${{ github.event.inputs.release_label }}.md <<'EOF'
+          # Release Readiness
+
+          - Build: passed
+          - Tests: passed
+          - Docs contract: passed
+          - Seven Shadow gauntlet (2x): passed
+
+          Release label: ${{ github.event.inputs.release_label }}
+          Commit: ${{ github.sha }}
+          EOF
+
+      - name: Upload Release Readiness Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-${{ github.event.inputs.release_label }}
+          path: .faye/reports/release-readiness-${{ github.event.inputs.release_label }}.md

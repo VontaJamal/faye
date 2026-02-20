@@ -5,14 +5,15 @@
   "private": true,
   "scripts": {
     "build": "npm run build:app && npm run build:dashboard",
-    "build:app": "tsc -p tsconfig.app.json",
+    "build:app": "rm -rf dist/app && tsc -p tsconfig.app.json",
     "build:dashboard": "tsc -p tsconfig.dashboard.json",
     "start:api": "node dist/app/index.js",
     "start:bridge": "node dist/app/telegramBridge.js",
     "cli": "node dist/app/cli.js",
     "test": "npm run build:app && node --test dist/app/test/*.test.js",
-    "guard:seven-shadow": "npm --prefix governance/seven-shadow-system ci && npm --prefix governance/seven-shadow-system run build && node governance/seven-shadow-system/dist/src/sevenShadowSystem.js --policy .seven-shadow/policy.json",
-    "guard:ai-review": "npm run guard:seven-shadow"
+    "guard:seven-shadow": "npm --prefix governance/seven-shadow-system ci && npm --prefix governance/seven-shadow-system run build && node governance/seven-shadow-system/dist/src/sevenShadowSystem.js",
+    "guard:ai-review": "npm run guard:seven-shadow -- --policy .seven-shadow/policy.json",
+    "demo": "./scripts/demo.sh"
   },
   "engines": {
     "node": ">=20"

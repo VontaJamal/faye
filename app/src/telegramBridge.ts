@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { createLogger } from "./logger";
-import { BRIDGE_OFFSET_PATH, FAYE_STATE_DIR } from "./paths";
+import { BRIDGE_OFFSET_PATH, BRIDGE_PROCESSED_KEYS_PATH, FAYE_STATE_DIR } from "./paths";
 import { ConfigStore } from "./store";
+import type { BridgeCommand } from "./telegramBridgeParser";
 import { parseBridgeCommand } from "./telegramBridgeParser";
 import { ensureDir, expandHomePath, pathExists, readSecret } from "./utils";
 
@@ -15,7 +16,7 @@ interface TelegramMessage {
   };
 }
 
-interface TelegramUpdate {
+export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
 }
@@ -24,6 +25,22 @@ interface TelegramResponse {
   ok: boolean;
   result: TelegramUpdate[];
 }
+
+interface ProcessedKeyStore {
+  order: string[];
+  set: Set<string>;
+}
+
+interface ProcessUpdateDependencies {
+  callLocalApiFn?: (pathname: string, body?: unknown) => Promise<void>;
+  sendTelegramFn?: (botToken: string, chatId: number, text: string) => Promise<void>;
+  writeOffsetFn?: (offset: number) => Promise<void>;
+  hasProcessedFn?: (key: string) => Promise<boolean>;
+  markProcessedFn?: (key: string) => Promise<void>;
+}
+
+const PROCESSED_KEYS_LIMIT = 2500;
+let processedKeysCache: ProcessedKeyStore | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -43,6 +60,85 @@ async function writeOffset(offset: number): Promise<void> {
   await ensureDir(path.dirname(BRIDGE_OFFSET_PATH));
   await fs.writeFile(BRIDGE_OFFSET_PATH, `${offset}\n`, { mode: 0o600 });
   await fs.chmod(BRIDGE_OFFSET_PATH, 0o600);
+}
+
+async function loadProcessedKeyStore(): Promise<ProcessedKeyStore> {
+  if (processedKeysCache) {
+    return processedKeysCache;
+  }
+
+  if (!(await pathExists(BRIDGE_PROCESSED_KEYS_PATH))) {
+    processedKeysCache = { order: [], set: new Set() };
+    return processedKeysCache;
+  }
+
+  try {
+    const raw = await fs.readFile(BRIDGE_PROCESSED_KEYS_PATH, "utf8");
+    const parsed = JSON.parse(raw) as { keys?: string[] };
+    const keys = Array.isArray(parsed.keys) ? parsed.keys.filter((item) => typeof item === "string") : [];
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const key of keys) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(key);
+      }
+    }
+    const trimmed = deduped.slice(-PROCESSED_KEYS_LIMIT);
+    processedKeysCache = {
+      order: trimmed,
+      set: new Set(trimmed)
+    };
+    return processedKeysCache;
+  } catch {
+    processedKeysCache = { order: [], set: new Set() };
+    return processedKeysCache;
+  }
+}
+
+async function persistProcessedKeyStore(store: ProcessedKeyStore): Promise<void> {
+  await ensureDir(path.dirname(BRIDGE_PROCESSED_KEYS_PATH));
+  const payload = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    keys: store.order
+  };
+  await fs.writeFile(BRIDGE_PROCESSED_KEYS_PATH, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  await fs.chmod(BRIDGE_PROCESSED_KEYS_PATH, 0o600);
+}
+
+async function hasProcessedCommandKey(key: string): Promise<boolean> {
+  const store = await loadProcessedKeyStore();
+  return store.set.has(key);
+}
+
+async function markProcessedCommandKey(key: string): Promise<void> {
+  const store = await loadProcessedKeyStore();
+  if (store.set.has(key)) {
+    return;
+  }
+
+  store.order.push(key);
+  store.set.add(key);
+
+  while (store.order.length > PROCESSED_KEYS_LIMIT) {
+    const removed = store.order.shift();
+    if (removed) {
+      store.set.delete(removed);
+    }
+  }
+
+  await persistProcessedKeyStore(store);
+}
+
+function bridgeCommandKey(command: BridgeCommand, updateId: number): string {
+  if (command.type === "speak") {
+    return command.sessionId ? `speak:session:${command.sessionId}` : `speak:update:${updateId}`;
+  }
+  if (command.type === "activate_profile") {
+    return `activate:${command.profileId}:update:${updateId}`;
+  }
+  return `ping:update:${updateId}`;
 }
 
 async function telegramRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -124,12 +220,18 @@ async function getBridgeCredentials(store: ConfigStore): Promise<{ botToken: str
   return { botToken, chatId };
 }
 
-async function processUpdates(
+export async function processUpdates(
   botToken: string,
   chatId: number,
   updates: TelegramUpdate[],
-  logger: ReturnType<typeof createLogger>
+  logger: ReturnType<typeof createLogger>,
+  deps?: ProcessUpdateDependencies
 ): Promise<number> {
+  const callLocalApiFn = deps?.callLocalApiFn ?? callLocalApi;
+  const sendTelegramFn = deps?.sendTelegramFn ?? sendTelegram;
+  const writeOffsetFn = deps?.writeOffsetFn ?? writeOffset;
+  const hasProcessedFn = deps?.hasProcessedFn ?? hasProcessedCommandKey;
+  const markProcessedFn = deps?.markProcessedFn ?? markProcessedCommandKey;
   let maxOffset = 0;
 
   for (const update of updates) {
@@ -137,36 +239,47 @@ async function processUpdates(
 
     const message = update.message;
     if (!message?.text || message.chat?.id !== chatId) {
-      await writeOffset(maxOffset);
+      await writeOffsetFn(maxOffset);
       continue;
     }
 
     const command = parseBridgeCommand(message.text);
     if (!command) {
-      await writeOffset(maxOffset);
+      await writeOffsetFn(maxOffset);
+      continue;
+    }
+
+    const commandKey = bridgeCommandKey(command, update.update_id);
+    if (await hasProcessedFn(commandKey)) {
+      logger.info("BRIDGE_DUPLICATE_SKIP", "Duplicate bridge command skipped", {
+        commandKey,
+        updateId: update.update_id
+      });
+
+      if (command.type === "speak" && command.sessionId) {
+        await sendTelegramFn(botToken, chatId, `#faye_spoken status=duplicate session=${command.sessionId}`).catch(() => undefined);
+      }
+
+      await writeOffsetFn(maxOffset);
       continue;
     }
 
     try {
       if (command.type === "ping") {
-        await sendTelegram(botToken, chatId, "#faye_pong status=online");
-        continue;
-      }
-
-      if (command.type === "activate_profile") {
-        await callLocalApi(`/v1/profiles/${encodeURIComponent(command.profileId)}/activate`);
-        await sendTelegram(botToken, chatId, `#faye_ack action=activate_profile profile=${command.profileId} status=ok`);
-        continue;
-      }
-
-      if (command.type === "speak") {
-        await callLocalApi("/v1/speak", {
+        await markProcessedFn(commandKey);
+        await sendTelegramFn(botToken, chatId, "#faye_pong status=online");
+      } else if (command.type === "activate_profile") {
+        await callLocalApiFn(`/v1/profiles/${encodeURIComponent(command.profileId)}/activate`);
+        await markProcessedFn(commandKey);
+        await sendTelegramFn(botToken, chatId, `#faye_ack action=activate_profile profile=${command.profileId} status=ok`);
+      } else if (command.type === "speak") {
+        await callLocalApiFn("/v1/speak", {
           text: command.text
         });
+        await markProcessedFn(commandKey);
 
         const sessionPart = command.sessionId ? ` session=${command.sessionId}` : "";
-        await sendTelegram(botToken, chatId, `#faye_spoken status=ok${sessionPart}`);
-        continue;
+        await sendTelegramFn(botToken, chatId, `#faye_spoken status=ok${sessionPart}`);
       }
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
@@ -177,10 +290,10 @@ async function processUpdates(
       });
 
       const sessionPart = command.type === "speak" && command.sessionId ? ` session=${command.sessionId}` : "";
-      await sendTelegram(botToken, chatId, `#faye_spoken status=error${sessionPart}`).catch(() => undefined);
+      await sendTelegramFn(botToken, chatId, `#faye_spoken status=error${sessionPart}`).catch(() => undefined);
     }
 
-    await writeOffset(maxOffset);
+    await writeOffsetFn(maxOffset);
   }
 
   return maxOffset;
