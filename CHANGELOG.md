@@ -2,6 +2,6 @@
 
 ## Unreleased - 2026-02-20
 
-- No user-facing changes recorded.
+- 82dbf67 docs: point alpha users to latest prerelease
 
 <!-- changelog:history -->
