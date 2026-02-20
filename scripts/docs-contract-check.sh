@@ -7,6 +7,7 @@ required=(
   ".github/workflows/seven-shadow-system.yml"
   ".github/workflows/ci-quality.yml"
   ".seven-shadow/policy.json"
+  ".seven-shadow/policy-smoke.json"
   "governance/seven-shadow-system/README.md"
   "scripts/install.sh"
   "scripts/faye"
@@ -34,11 +35,15 @@ grep -q "Seven Shadow System" "$ROOT_DIR/README.md" || { echo "README missing Se
 node - <<'NODE'
 const fs = require("fs");
 const policy = JSON.parse(fs.readFileSync(".seven-shadow/policy.json", "utf8"));
+const smoke = JSON.parse(fs.readFileSync(".seven-shadow/policy-smoke.json", "utf8"));
 if (!Array.isArray(policy.rules) || policy.rules.length === 0) {
   throw new Error("Seven Shadow policy must include at least one rule");
 }
 if (typeof policy.maxAiScore !== "number") {
   throw new Error("Seven Shadow policy must define maxAiScore");
+}
+if (typeof smoke.minHumanApprovals !== "number" || smoke.minHumanApprovals !== 0) {
+  throw new Error("Seven Shadow smoke policy must set minHumanApprovals to 0");
 }
 NODE
 

@@ -20,22 +20,49 @@ async function api(url, init) {
     });
     if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || `HTTP ${response.status}`);
+        if (text) {
+            try {
+                const parsed = JSON.parse(text);
+                if (parsed.error === "E_VALIDATION" && Array.isArray(parsed.issues) && parsed.issues.length > 0) {
+                    const message = parsed.issues
+                        .map((item) => `${item.path ?? "field"}: ${item.message ?? "invalid"}`)
+                        .join("; ");
+                    throw new Error(message);
+                }
+                if (parsed.error) {
+                    throw new Error(parsed.error);
+                }
+            }
+            catch (error) {
+                if (error instanceof Error && error.message.length > 0 && error.message !== text) {
+                    throw error;
+                }
+                throw new Error(text);
+            }
+        }
+        throw new Error(`HTTP ${response.status}`);
     }
     if (response.status === 204) {
         return undefined;
     }
     return (await response.json());
 }
+function optionalField(value) {
+    const text = String(value ?? "").trim();
+    return text.length > 0 ? text : undefined;
+}
+function appendProfileLine(container, text, strong = false) {
+    const el = document.createElement(strong ? "strong" : "small");
+    el.textContent = text;
+    container.append(el, document.createElement("br"));
+}
 function profileCard(profile, activeProfileId) {
     const card = document.createElement("article");
     card.className = `profile-card ${profile.id === activeProfileId ? "active" : ""}`;
-    card.innerHTML = `
-    <strong>${profile.name}</strong><br />
-    <small>ID: ${profile.id}</small><br />
-    <small>Voice: ${profile.voiceName} (${profile.voiceId})</small><br />
-    <small>Wake: ${profile.wakeWord}</small>
-  `;
+    appendProfileLine(card, profile.name, true);
+    appendProfileLine(card, `ID: ${profile.id}`);
+    appendProfileLine(card, `Voice: ${profile.voiceName} (${profile.voiceId})`);
+    appendProfileLine(card, `Wake: ${profile.wakeWord}`);
     const actions = document.createElement("div");
     actions.className = "profile-actions";
     const wakeInput = document.createElement("input");
@@ -46,39 +73,54 @@ function profileCard(profile, activeProfileId) {
     saveWake.textContent = "Save Wake Word";
     saveWake.className = "secondary";
     saveWake.addEventListener("click", async () => {
-        const wakeWord = wakeInput.value.trim();
-        if (!wakeWord) {
-            setStatus("Wake word cannot be empty.", true);
-            return;
+        try {
+            const wakeWord = wakeInput.value.trim();
+            if (!wakeWord) {
+                setStatus("Wake word cannot be empty.", true);
+                return;
+            }
+            await api(`/v1/profiles/${profile.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({
+                    wakeWord,
+                    wakeWordVariants: [wakeWord.toLowerCase()]
+                })
+            });
+            setStatus(`Wake word updated for ${profile.name}`);
+            await refreshProfiles();
         }
-        await api(`/v1/profiles/${profile.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-                wakeWord,
-                wakeWordVariants: [wakeWord.toLowerCase()]
-            })
-        });
-        setStatus(`Wake word updated for ${profile.name}`);
-        await refreshProfiles();
+        catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), true);
+        }
     });
     const activate = document.createElement("button");
     activate.textContent = "Activate";
     activate.className = "secondary";
     activate.addEventListener("click", async () => {
-        await api(`/v1/profiles/${profile.id}/activate`, { method: "POST" });
-        setStatus(`Activated ${profile.name}`);
-        await refreshProfiles();
+        try {
+            await api(`/v1/profiles/${profile.id}/activate`, { method: "POST" });
+            setStatus(`Activated ${profile.name}`);
+            await refreshProfiles();
+        }
+        catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), true);
+        }
     });
     const remove = document.createElement("button");
     remove.textContent = "Delete";
     remove.className = "danger";
     remove.addEventListener("click", async () => {
-        if (!confirm(`Delete profile ${profile.name}?`)) {
-            return;
+        try {
+            if (!confirm(`Delete profile ${profile.name}?`)) {
+                return;
+            }
+            await api(`/v1/profiles/${profile.id}`, { method: "DELETE" });
+            setStatus(`Deleted ${profile.name}`);
+            await refreshProfiles();
         }
-        await api(`/v1/profiles/${profile.id}`, { method: "DELETE" });
-        setStatus(`Deleted ${profile.name}`);
-        await refreshProfiles();
+        catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), true);
+        }
     });
     actions.append(wakeInput, saveWake, activate, remove);
     card.append(actions);
@@ -111,12 +153,12 @@ function bindSetupForm() {
         const data = new FormData(form);
         const payload = {
             profileName: String(data.get("profileName") ?? "Primary Voice"),
-            apiKey: String(data.get("apiKey") ?? ""),
+            apiKey: optionalField(data.get("apiKey")),
             voiceId: String(data.get("voiceId") ?? ""),
             voiceName: String(data.get("voiceName") ?? ""),
             wakeWord: String(data.get("wakeWord") ?? "Faye Arise"),
-            telegramToken: String(data.get("telegramToken") ?? ""),
-            telegramChatId: String(data.get("telegramChatId") ?? "")
+            telegramToken: optionalField(data.get("telegramToken")),
+            telegramChatId: optionalField(data.get("telegramChatId"))
         };
         try {
             await api("/v1/setup", {

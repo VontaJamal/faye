@@ -24,7 +24,7 @@ run_matrix() {
   (cd "$ROOT_DIR" && ./scripts/docs-contract-check.sh)
 
   echo "[7] Seven Shadow System policy smoke"
-  (cd "$ROOT_DIR" && npm run guard:seven-shadow -- --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review --report .seven-shadow/reports/local-report.json)
+  (cd "$ROOT_DIR" && npm run guard:seven-shadow -- --policy .seven-shadow/policy-smoke.json --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review --report .seven-shadow/reports/local-report.json)
 }
 
 for i in $(seq 1 "$RUNS"); do

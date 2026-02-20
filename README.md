@@ -1,75 +1,46 @@
 # Faye
 
-Faye is a local-first, always-on voice layer for OpenClaw agents.
+Faye is a local-first voice layer for OpenClaw.
 
-It listens for your custom wake word, sends wake/session events, and speaks responses aloud through ElevenLabs TTS.
+You choose your wake word, and Faye listens, routes events, and speaks back with ElevenLabs.
 
-## 3-Step Quick Start
+## 3-step setup
 
-This is the canonical 3-step onboarding flow.
+1. Run install:
+```bash
+./scripts/install.sh
+```
+2. Complete setup prompts (wake word, voice, API key).
+3. Open the dashboard: [http://127.0.0.1:4587](http://127.0.0.1:4587)
 
-1. `./scripts/install.sh`
-2. Complete setup prompts (voice, wake word, API key)
-3. Open [http://127.0.0.1:4587](http://127.0.0.1:4587)
+## Everyday commands
 
-That is the full install path.
+- Setup/update: `./scripts/faye setup`
+- Health check: `./scripts/faye doctor`
+- List profiles: `./scripts/faye profile list`
+- Speak test: `./scripts/speak.sh "Hello from Faye"`
 
-## What You Get
+## Always-on behavior
 
-- Always-on listener service (LaunchAgent on macOS, user systemd on Linux)
-- Local dashboard for saved profiles and one-click activation
-- Local API bound to `127.0.0.1` only
-- Optional Telegram transport + always-on Telegram bridge for OpenClaw continuity
-- Compatibility scripts for speaker install and remote playback
-
-## Commands
-
-- `./scripts/install.sh` — one-shot install/build/setup/services
-- `./scripts/faye setup` — guided setup/update
-- `./scripts/faye profile list|create|update|activate|delete`
-- `./scripts/faye doctor` — dependency/config/service checks
-- `./scripts/speak.sh "text"` — local TTS playback
-- `./scripts/speak-remote.sh "text"` — remote speaker playback via SSH
-- `./scripts/telegram-bridge-control.sh status|restart` — OpenClaw command return bridge
-
-## Always-On Services
+After install, Faye runs as user services and starts automatically on login:
 
 - Listener: `./scripts/listener-control.sh status|restart`
 - Dashboard/API: `./scripts/dashboard-control.sh status|restart`
 - Telegram bridge: `./scripts/telegram-bridge-control.sh status|restart`
 
-After installation, all three services auto-start on login and restart on failure.
+## Telegram bridge
 
-## Telegram Bridge
+Telegram bridge is optional, but it enables smooth OpenClaw round-trips:
 
-The Telegram bridge closes the timing loop between wake events and spoken responses:
+1. Faye sends wake/session events.
+2. OpenClaw responds with `#faye_speak`.
+3. Faye bridge plays spoken output automatically.
 
-1. Listener sends `#faye_wake` / `#faye_voice` events to Telegram.
-2. OpenClaw responds with `#faye_speak ...`.
-3. Bridge consumes `#faye_speak` in real time and triggers local speech automatically.
+Protocol: `references/openclaw-telegram-protocol.md`
 
-Protocol reference:
-- `references/openclaw-telegram-protocol.md`
+## Seven Shadow doctrine
 
-## Dashboard Capabilities
-
-- Save and manage a collection of voice profiles
-- One-click profile activation and listener reload
-- One-click wake-word/profile updates through setup form
-- Live event stream (`wake_detected`, `message_transcribed`, errors)
-- Health panel for dependencies and service state
-
-## Security and Reliability Baselines
-
-- Secret files are written with `0600` permissions
-- Listener/API are local-first with explicit local-only controls
-- ElevenLabs/Telegram requests use timeout + retry behavior
-- Structured logs with secret redaction
-- Wake-word matching avoids regex injection patterns
-
-## Seven Shadow Doctrine
-
-This repository enforces a repeatable Seven Shadow gauntlet for releases:
+Faye uses a Seven Shadow release bar across:
 
 1. Security
 2. Accessibility
@@ -79,44 +50,34 @@ This repository enforces a repeatable Seven Shadow gauntlet for releases:
 6. Value
 7. Aesthetics
 
-Run it with:
-
+Run the gauntlet:
 ```bash
 ./scripts/seven-shadow-test.sh
 ```
 
-Release gate: critical matrix must pass twice consecutively.
+## Seven Shadow System
 
-## CI and Reliability
+Faye uses the open-source Seven Shadow System as its shareable AI review guard.
 
-- CI workflow: `.github/workflows/ci-quality.yml`
-- Quality gates: build, tests, accessibility baseline, docs contract, Seven Shadow double-pass, npm high-severity audit
-- Reliability/SLO runbook: `references/reliability-slo.md`
-
-## Seven Shadow System (Shareable Guard)
-
-Faye now consumes the open-source Seven Shadow System as a submodule foundation:
-
-- Canonical repo: [VontaJamal/seven-shadow-system](https://github.com/VontaJamal/seven-shadow-system)
-- Submodule path: `governance/seven-shadow-system`
-- Policy file: `.seven-shadow/policy.json`
+- Repo: [VontaJamal/seven-shadow-system](https://github.com/VontaJamal/seven-shadow-system)
+- Submodule: `governance/seven-shadow-system`
+- Policy: `.seven-shadow/policy.json`
 - Workflow: `.github/workflows/seven-shadow-system.yml`
 - Guide: `references/seven-shadow-system.md`
 
-Run locally:
-
+Local smoke run:
 ```bash
-npm run guard:seven-shadow -- --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review
+npm run guard:seven-shadow -- --policy .seven-shadow/policy-smoke.json --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review
 ```
 
-## Rinshari-UI Integration
+## Rinshari integration
 
-Faye now consumes Rinshari doctrine via `design/rinshari-ui`.
+Design doctrine source: `design/rinshari-ui`
 
-Before UI changes, follow:
+Before major UI changes, use:
 - `design/rinshari-ui/templates/design-preflight.md`
 - `docs/site-soul-brief.md`
-- `AGENTS.md` managed preflight block
+- `AGENTS.md`
 
 ## License
 

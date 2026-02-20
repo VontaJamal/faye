@@ -27,7 +27,7 @@ jobs:
           cache-dependency-path: governance/seven-shadow-system/package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: governance/seven-shadow-system
 
       - name: Build Seven Shadow System

@@ -370,6 +370,52 @@ test("setup updates transport and active profile", async () => {
   }
 });
 
+test("setup accepts blank optional fields from dashboard payload", async () => {
+  const harness = await startHarness();
+  try {
+    const response = await requestJson(harness.baseUrl, "/v1/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profileName: "Primary Voice",
+        apiKey: "",
+        voiceId: "voice_main",
+        voiceName: "Main",
+        wakeWord: "Faye Arise",
+        telegramToken: "",
+        telegramChatId: ""
+      })
+    });
+
+    assert.equal(response.status, 201);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("setup returns validation details on malformed payload", async () => {
+  const harness = await startHarness();
+  try {
+    const response = await requestJson(harness.baseUrl, "/v1/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profileName: "Primary Voice",
+        voiceName: "Main",
+        wakeWord: "Faye Arise"
+      })
+    });
+
+    assert.equal(response.status, 400);
+    const body = response.body as { error: string; issues: Array<{ path: string; message: string }> };
+    assert.equal(body.error, "E_VALIDATION");
+    assert.equal(Array.isArray(body.issues), true);
+    assert.equal(body.issues.some((item) => item.path === "voiceId"), true);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("speak route returns profile-not-found for unknown profile", async () => {
   const harness = await startHarness();
   try {

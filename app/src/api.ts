@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import express, { type NextFunction, type Request, type Response } from "express";
+import { ZodError } from "zod";
 
 import { playAudioFile } from "./audio";
 import { runDoctor } from "./doctor";
@@ -61,6 +62,17 @@ function routeError(logger: Logger, res: Response, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   logger.error("API_ROUTE_ERROR", "API request failed", { message });
 
+  if (error instanceof ZodError) {
+    res.status(400).json({
+      error: "E_VALIDATION",
+      issues: error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message
+      }))
+    });
+    return;
+  }
+
   if (message.startsWith("E_")) {
     res.status(400).json({ error: message });
     return;
@@ -71,6 +83,14 @@ function routeError(logger: Logger, res: Response, error: unknown): void {
 
 export function createApiServer(deps: ApiDependencies): express.Express {
   const app = express();
+
+  const normalizeOptional = (value: unknown): string | undefined => {
+    if (typeof value !== "string") {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
 
   const speakWithProfile = async (text: string, profileId?: string): Promise<{ profileId: string }> => {
     const config = deps.store.getConfig();
@@ -125,7 +145,13 @@ export function createApiServer(deps: ApiDependencies): express.Express {
 
   app.post("/v1/setup", async (req, res) => {
     try {
-      const setup = SetupInputSchema.parse(req.body ?? {});
+      const raw = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
+      const setup = SetupInputSchema.parse({
+        ...raw,
+        apiKey: normalizeOptional(raw.apiKey),
+        telegramToken: normalizeOptional(raw.telegramToken),
+        telegramChatId: normalizeOptional(raw.telegramChatId)
+      });
 
       if (setup.apiKey) {
         await writeSecret(DEFAULT_ELEVENLABS_KEY_PATH, setup.apiKey);

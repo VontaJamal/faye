@@ -10,6 +10,7 @@ Faye integrates Seven Shadow System as a reusable submodule so governance logic 
 ## Faye Integration Contract
 
 - Policy file: `.seven-shadow/policy.json`
+- Smoke policy file: `.seven-shadow/policy-smoke.json` (for local/CI fixture checks)
 - Workflow: `.github/workflows/seven-shadow-system.yml`
 - Local command:
 

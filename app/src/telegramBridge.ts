@@ -137,11 +137,13 @@ async function processUpdates(
 
     const message = update.message;
     if (!message?.text || message.chat?.id !== chatId) {
+      await writeOffset(maxOffset);
       continue;
     }
 
     const command = parseBridgeCommand(message.text);
     if (!command) {
+      await writeOffset(maxOffset);
       continue;
     }
 
@@ -177,6 +179,8 @@ async function processUpdates(
       const sessionPart = command.type === "speak" && command.sessionId ? ` session=${command.sessionId}` : "";
       await sendTelegram(botToken, chatId, `#faye_spoken status=error${sessionPart}`).catch(() => undefined);
     }
+
+    await writeOffset(maxOffset);
   }
 
   return maxOffset;

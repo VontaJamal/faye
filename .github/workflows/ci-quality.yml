@@ -46,7 +46,7 @@ jobs:
         run: ./scripts/seven-shadow-test.sh 2
 
       - name: Seven Shadow System Policy Check
-        run: npm run guard:seven-shadow -- --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review --report .seven-shadow/reports/ci-report.json
+        run: npm run guard:seven-shadow -- --policy .seven-shadow/policy-smoke.json --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review --report .seven-shadow/reports/ci-report.json
 
       - name: Security Audit (high+)
         run: npm audit --audit-level=high
