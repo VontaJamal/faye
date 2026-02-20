@@ -187,6 +187,7 @@ If you are just using Faye, you can skip this.
 
 Rinshari-UI is the design playbook for maintainers who change UI behavior:
 
+- Repo: [VontaJamal/rinshari-ui](https://github.com/VontaJamal/rinshari-ui)
 - `design/rinshari-ui/templates/design-preflight.md`
 - `docs/site-soul-brief.md`
 - `AGENTS.md`

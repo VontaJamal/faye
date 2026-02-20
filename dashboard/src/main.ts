@@ -25,11 +25,47 @@ interface BridgeRuntimeStatus {
   lastCommandStatus?: "ok" | "error" | "duplicate";
 }
 
+interface RoundTripSnapshot {
+  watchdogMs: number;
+  autoRetryLimit: number;
+  activeSessions: number;
+  pendingSessions: Array<{
+    sessionId: string;
+    state: "wake_detected" | "awaiting_speak" | "speak_received";
+    retryCount: number;
+    ageMs: number;
+    updatedAt: string;
+  }>;
+  totals: {
+    started: number;
+    retriesSent: number;
+    completed: number;
+    timeouts: number;
+  };
+  lastCompleted:
+    | {
+        sessionId: string;
+        at: string;
+        retryCount: number;
+        status: "ok" | "error" | "duplicate";
+      }
+    | null;
+  lastTimeout:
+    | {
+        sessionId: string;
+        at: string;
+        retryCount: number;
+        reason: "watchdog" | "retry_send_failed" | "retry_unavailable";
+      }
+    | null;
+}
+
 interface HealthResponse {
   ok: boolean;
   doctor: unknown;
   services: unknown;
   bridgeRuntime: BridgeRuntimeStatus | null;
+  roundTrip?: RoundTripSnapshot;
 }
 
 const setupStatus = document.querySelector<HTMLParagraphElement>("#setup-status");
@@ -116,7 +152,7 @@ function renderRuntimeCell(label: string, value: string): HTMLElement {
   return item;
 }
 
-function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null): void {
+function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null, roundTrip?: RoundTripSnapshot): void {
   if (!runtimeStatus) {
     return;
   }
@@ -142,6 +178,26 @@ function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null): void {
       "Last Error",
       runtime.lastError ? `${formatTimestamp(runtime.lastErrorAt)} | ${runtime.lastError}` : "n/a"
     )
+  );
+
+  if (!roundTrip) {
+    return;
+  }
+
+  const lastCompleted = roundTrip.lastCompleted
+    ? `${roundTrip.lastCompleted.status} @ ${formatTimestamp(roundTrip.lastCompleted.at)}`
+    : "n/a";
+  const lastTimeout = roundTrip.lastTimeout
+    ? `${roundTrip.lastTimeout.reason} @ ${formatTimestamp(roundTrip.lastTimeout.at)}`
+    : "n/a";
+
+  runtimeStatus.append(
+    renderRuntimeCell("Round-Trip Active", String(roundTrip.activeSessions)),
+    renderRuntimeCell("Round-Trip Retries", String(roundTrip.totals.retriesSent)),
+    renderRuntimeCell("Round-Trip Timeouts", String(roundTrip.totals.timeouts)),
+    renderRuntimeCell("Round-Trip Completed", String(roundTrip.totals.completed)),
+    renderRuntimeCell("Round-Trip Last Completed", lastCompleted),
+    renderRuntimeCell("Round-Trip Last Timeout", lastTimeout)
   );
 }
 
@@ -245,7 +301,7 @@ async function refreshHealth(): Promise<void> {
 
   const health = await api<HealthResponse>("/v1/health");
   healthPre.textContent = JSON.stringify(health, null, 2);
-  renderRuntimeStatus(health.bridgeRuntime);
+  renderRuntimeStatus(health.bridgeRuntime, health.roundTrip);
 }
 
 function bindSetupForm(): void {

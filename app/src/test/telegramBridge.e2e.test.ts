@@ -146,3 +146,60 @@ test("telegram bridge records runtime telemetry for successful command path", as
   assert.equal(runtimePatches.some((patch) => patch.lastCommandType === "speak" && patch.lastCommandStatus === "ok"), true);
   assert.equal(runtimePatches.some((patch) => patch.lastOffset === 1004), true);
 });
+
+test("telegram bridge emits local round-trip events for session speak flow", async () => {
+  const localEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+
+  await processUpdates("token", 999, [speakUpdate(1005, "s-events-1", "bridge event test")], makeLogger(), {
+    callLocalApiFn: async () => undefined,
+    sendTelegramFn: async () => undefined,
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async () => false,
+    markProcessedFn: async () => undefined,
+    emitLocalEventFn: async (eventType, payload) => {
+      localEvents.push({ type: eventType, payload });
+    }
+  });
+
+  assert.equal(localEvents.some((event) => event.type === "bridge_speak_received"), true);
+  assert.equal(
+    localEvents.some(
+      (event) =>
+        event.type === "bridge_spoken" &&
+        event.payload.session_id === "s-events-1" &&
+        event.payload.status === "ok"
+    ),
+    true
+  );
+});
+
+test("telegram bridge emits duplicate spoken event on replayed session", async () => {
+  const localEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  const processed = new Set<string>();
+
+  const deps = {
+    callLocalApiFn: async () => undefined,
+    sendTelegramFn: async () => undefined,
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async (key: string) => processed.has(key),
+    markProcessedFn: async (key: string) => {
+      processed.add(key);
+    },
+    emitLocalEventFn: async (eventType: string, payload: Record<string, unknown>) => {
+      localEvents.push({ type: eventType, payload });
+    }
+  };
+
+  await processUpdates("token", 999, [speakUpdate(1006, "s-events-2", "once")], makeLogger(), deps);
+  await processUpdates("token", 999, [speakUpdate(1006, "s-events-2", "once")], makeLogger(), deps);
+
+  assert.equal(
+    localEvents.some(
+      (event) =>
+        event.type === "bridge_spoken" &&
+        event.payload.session_id === "s-events-2" &&
+        event.payload.status === "duplicate"
+    ),
+    true
+  );
+});

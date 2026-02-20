@@ -12,6 +12,7 @@ Build and maintain Faye as a local-first, always-on voice agent skill that is fr
 <!-- RINSHARI-UI:START -->
 ## Design Preflight Requirement (Managed)
 For any UI/UX change, agents must do all of the following before implementation:
+0. Use Rinshari-UI doctrine source: `https://github.com/VontaJamal/rinshari-ui`
 1. Read `design/rinshari-ui/templates/design-preflight.md`.
 2. Audit repository animation/motion implementation first and note keep/change decisions.
 3. Read relevant files in `design/rinshari-ui/principles/`.

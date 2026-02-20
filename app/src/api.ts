@@ -11,6 +11,7 @@ import type { EventHub } from "./events";
 import { ElevenLabsClient } from "./elevenlabs";
 import type { Logger } from "./logger";
 import { DASHBOARD_PUBLIC_DIR, DEFAULT_ELEVENLABS_KEY_PATH, DEFAULT_TELEGRAM_TOKEN_PATH } from "./paths";
+import { RoundTripCoordinator } from "./roundTripCoordinator";
 import { ServiceControl } from "./service-control";
 import type { ConfigStore } from "./store";
 import { readBridgeRuntimeStatus } from "./telegramBridge";
@@ -84,6 +85,11 @@ function routeError(logger: Logger, res: Response, error: unknown): void {
 
 export function createApiServer(deps: ApiDependencies): express.Express {
   const app = express();
+  const roundTrip = new RoundTripCoordinator({
+    events: deps.events,
+    store: deps.store,
+    logger: deps.logger
+  });
 
   const normalizeOptional = (value: unknown): string | undefined => {
     if (typeof value !== "string") {
@@ -126,7 +132,8 @@ export function createApiServer(deps: ApiDependencies): express.Express {
           dashboard,
           bridge
         },
-        bridgeRuntime
+        bridgeRuntime,
+        roundTrip: roundTrip.getSnapshot()
       });
     } catch (error) {
       routeError(deps.logger, res, error);

@@ -6,7 +6,9 @@ import {
   BRIDGE_OFFSET_PATH,
   BRIDGE_PROCESSED_KEYS_PATH,
   BRIDGE_RUNTIME_STATUS_PATH,
-  FAYE_STATE_DIR
+  DEFAULT_API_BASE_URL,
+  FAYE_STATE_DIR,
+  LOCAL_EVENT_TOKEN_PATH
 } from "./paths";
 import { ConfigStore } from "./store";
 import type { BridgeCommand } from "./telegramBridgeParser";
@@ -58,11 +60,13 @@ interface ProcessUpdateDependencies {
   hasProcessedFn?: (key: string) => Promise<boolean>;
   markProcessedFn?: (key: string) => Promise<void>;
   recordRuntimeFn?: (patch: Partial<BridgeRuntimeStatus>) => Promise<void>;
+  emitLocalEventFn?: (eventType: string, payload: Record<string, unknown>) => Promise<void>;
 }
 
 const PROCESSED_KEYS_LIMIT = 2500;
 let processedKeysCache: ProcessedKeyStore | null = null;
 let runtimeCache: BridgeRuntimeStatus | null = null;
+let localEventTokenCache: string | undefined;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -301,6 +305,51 @@ async function sendTelegram(botToken: string, chatId: number, text: string): Pro
   });
 }
 
+async function readLocalEventToken(): Promise<string | null> {
+  if (typeof localEventTokenCache === "string" && localEventTokenCache.length > 0) {
+    return localEventTokenCache;
+  }
+
+  if (!(await pathExists(LOCAL_EVENT_TOKEN_PATH))) {
+    return null;
+  }
+
+  try {
+    const token = await readSecret(LOCAL_EVENT_TOKEN_PATH);
+    if (!token) {
+      return null;
+    }
+    localEventTokenCache = token;
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+async function emitLocalEvent(eventType: string, payload: Record<string, unknown>): Promise<void> {
+  const token = await readLocalEventToken();
+  if (!token) {
+    return;
+  }
+
+  const response = await fetch(`${DEFAULT_API_BASE_URL}/v1/internal/listener-event`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-faye-local-token": token
+    },
+    body: JSON.stringify({
+      type: eventType,
+      payload
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`E_LOCAL_EVENT_${response.status}: ${text.slice(0, 180)}`);
+  }
+}
+
 async function getBridgeCredentials(store: ConfigStore): Promise<{ botToken: string; chatId: number } | null> {
   const active = store.getActiveProfile();
   if (!active.telegramBotTokenPath || !active.telegramChatId) {
@@ -338,6 +387,7 @@ export async function processUpdates(
   const hasProcessedFn = deps?.hasProcessedFn ?? hasProcessedCommandKey;
   const markProcessedFn = deps?.markProcessedFn ?? markProcessedCommandKey;
   const recordRuntimeFn = deps?.recordRuntimeFn ?? updateRuntimeStatus;
+  const emitLocalEventFn = deps?.emitLocalEventFn ?? emitLocalEvent;
   let maxOffset = 0;
 
   for (const update of updates) {
@@ -373,6 +423,10 @@ export async function processUpdates(
 
       if (command.type === "speak" && command.sessionId) {
         await sendTelegramFn(botToken, chatId, `#faye_spoken status=duplicate session=${command.sessionId}`).catch(() => undefined);
+        await emitLocalEventFn("bridge_spoken", {
+          session_id: command.sessionId,
+          status: "duplicate"
+        }).catch(() => undefined);
       }
 
       await writeOffsetFn(maxOffset);
@@ -389,6 +443,13 @@ export async function processUpdates(
         await markProcessedFn(commandKey);
         await sendTelegramFn(botToken, chatId, `#faye_ack action=activate_profile profile=${command.profileId} status=ok`);
       } else if (command.type === "speak") {
+        if (command.sessionId) {
+          await emitLocalEventFn("bridge_speak_received", {
+            session_id: command.sessionId,
+            update_id: update.update_id
+          }).catch(() => undefined);
+        }
+
         await callLocalApiFn("/v1/speak", {
           text: command.text
         });
@@ -396,6 +457,13 @@ export async function processUpdates(
 
         const sessionPart = command.sessionId ? ` session=${command.sessionId}` : "";
         await sendTelegramFn(botToken, chatId, `#faye_spoken status=ok${sessionPart}`);
+
+        if (command.sessionId) {
+          await emitLocalEventFn("bridge_spoken", {
+            session_id: command.sessionId,
+            status: "ok"
+          }).catch(() => undefined);
+        }
       }
       await recordRuntimeFn({
         lastCommandType: command.type,
@@ -417,6 +485,12 @@ export async function processUpdates(
 
       const sessionPart = command.type === "speak" && command.sessionId ? ` session=${command.sessionId}` : "";
       await sendTelegramFn(botToken, chatId, `#faye_spoken status=error${sessionPart}`).catch(() => undefined);
+      if (command.type === "speak" && command.sessionId) {
+        await emitLocalEventFn("bridge_spoken", {
+          session_id: command.sessionId,
+          status: "error"
+        }).catch(() => undefined);
+      }
     }
 
     await writeOffsetFn(maxOffset);

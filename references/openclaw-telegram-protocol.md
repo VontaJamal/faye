@@ -34,3 +34,7 @@ This protocol is used to reduce delayed/missed response timing between wake dete
 
 - OpenClaw should emit `#faye_speak` immediately after processing `#faye_voice`.
 - Keep one active session per conversation thread for deterministic playback.
+- Faye runs a local watchdog for each session:
+  - waits for `#faye_speak` after wake/message,
+  - auto-retries one `#faye_voice` send if timeout occurs,
+  - emits `session_timeout` event if response still does not arrive.

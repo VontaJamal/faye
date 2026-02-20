@@ -90,7 +90,14 @@ export const SetupInputSchema = z.object({
 });
 
 export const LocalIngestEventSchema = z.object({
-  type: z.enum(["wake_detected", "message_transcribed", "listener_error", "listener_status"]),
+  type: z.enum([
+    "wake_detected",
+    "message_transcribed",
+    "listener_error",
+    "listener_status",
+    "bridge_speak_received",
+    "bridge_spoken"
+  ]),
   payload: z.record(z.unknown()).default({})
 });
 

@@ -294,9 +294,10 @@ test("health endpoint returns bridge runtime field", async () => {
   try {
     const response = await requestJson(harness.baseUrl, "/v1/health");
     assert.equal(response.status, 200);
-    const body = response.body as { ok: boolean; bridgeRuntime: unknown };
+    const body = response.body as { ok: boolean; bridgeRuntime: unknown; roundTrip: { activeSessions: number } };
     assert.equal(typeof body.ok, "boolean");
     assert.equal("bridgeRuntime" in body, true);
+    assert.equal(typeof body.roundTrip.activeSessions, "number");
   } finally {
     await harness.close();
   }

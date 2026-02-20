@@ -72,7 +72,7 @@ function renderRuntimeCell(label, value) {
     item.append(title, content);
     return item;
 }
-function renderRuntimeStatus(runtime) {
+function renderRuntimeStatus(runtime, roundTrip) {
     if (!runtimeStatus) {
         return;
     }
@@ -82,6 +82,16 @@ function renderRuntimeStatus(runtime) {
         return;
     }
     runtimeStatus.append(renderRuntimeCell("Bridge State", runtime.state), renderRuntimeCell("Consecutive Errors", String(runtime.consecutiveErrors)), renderRuntimeCell("Backoff", `${runtime.backoffMs}ms`), renderRuntimeCell("Last Update", typeof runtime.lastUpdateId === "number" ? String(runtime.lastUpdateId) : "n/a"), renderRuntimeCell("Last Offset", typeof runtime.lastOffset === "number" ? String(runtime.lastOffset) : "n/a"), renderRuntimeCell("Last Command", runtime.lastCommandType ? `${runtime.lastCommandType} (${runtime.lastCommandStatus ?? "unknown"})` : "n/a"), renderRuntimeCell("Last Success", formatTimestamp(runtime.lastSuccessAt)), renderRuntimeCell("Last Error", runtime.lastError ? `${formatTimestamp(runtime.lastErrorAt)} | ${runtime.lastError}` : "n/a"));
+    if (!roundTrip) {
+        return;
+    }
+    const lastCompleted = roundTrip.lastCompleted
+        ? `${roundTrip.lastCompleted.status} @ ${formatTimestamp(roundTrip.lastCompleted.at)}`
+        : "n/a";
+    const lastTimeout = roundTrip.lastTimeout
+        ? `${roundTrip.lastTimeout.reason} @ ${formatTimestamp(roundTrip.lastTimeout.at)}`
+        : "n/a";
+    runtimeStatus.append(renderRuntimeCell("Round-Trip Active", String(roundTrip.activeSessions)), renderRuntimeCell("Round-Trip Retries", String(roundTrip.totals.retriesSent)), renderRuntimeCell("Round-Trip Timeouts", String(roundTrip.totals.timeouts)), renderRuntimeCell("Round-Trip Completed", String(roundTrip.totals.completed)), renderRuntimeCell("Round-Trip Last Completed", lastCompleted), renderRuntimeCell("Round-Trip Last Timeout", lastTimeout));
 }
 function appendProfileLine(container, text, strong = false) {
     const el = document.createElement(strong ? "strong" : "small");
@@ -174,7 +184,7 @@ async function refreshHealth() {
     }
     const health = await api("/v1/health");
     healthPre.textContent = JSON.stringify(health, null, 2);
-    renderRuntimeStatus(health.bridgeRuntime);
+    renderRuntimeStatus(health.bridgeRuntime, health.roundTrip);
 }
 function bindSetupForm() {
     const form = document.querySelector("#setup-form");
