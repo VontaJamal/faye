@@ -23,8 +23,8 @@ run_matrix() {
   echo "[6] Documentation drift check"
   (cd "$ROOT_DIR" && ./scripts/docs-contract-check.sh)
 
-  echo "[7] AI review guard policy smoke"
-  (cd "$ROOT_DIR" && node dist/app/aiReviewGuard.js --policy .faye/ai-review-guard.policy.json --event .faye/examples/pr_review_event.json --event-name pull_request_review --report .faye/reports/ai-review-guard-local.json)
+  echo "[7] Seven Shadow System policy smoke"
+  (cd "$ROOT_DIR" && npm run guard:seven-shadow -- --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review --report .seven-shadow/reports/local-report.json)
 }
 
 for i in $(seq 1 "$RUNS"); do

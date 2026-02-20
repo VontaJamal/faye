@@ -93,18 +93,20 @@ Release gate: critical matrix must pass twice consecutively.
 - Quality gates: build, tests, accessibility baseline, docs contract, Seven Shadow double-pass, npm high-severity audit
 - Reliability/SLO runbook: `references/reliability-slo.md`
 
-## AI Review Guard
+## Seven Shadow System (Shareable Guard)
 
-Maintainers can define custom block/detect policy for AI-like review content:
+Faye now consumes the open-source Seven Shadow System as a submodule foundation:
 
-- Policy file: `.faye/ai-review-guard.policy.json`
-- Workflow: `.github/workflows/ai-review-guard.yml`
-- Guide: `references/ai-review-guard.md`
+- Canonical repo: [VontaJamal/seven-shadow-system](https://github.com/VontaJamal/seven-shadow-system)
+- Submodule path: `governance/seven-shadow-system`
+- Policy file: `.seven-shadow/policy.json`
+- Workflow: `.github/workflows/seven-shadow-system.yml`
+- Guide: `references/seven-shadow-system.md`
 
 Run locally:
 
 ```bash
-npm run guard:ai-review -- --event .faye/examples/pr_review_event.json --event-name pull_request_review
+npm run guard:seven-shadow -- --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review
 ```
 
 ## Rinshari-UI Integration

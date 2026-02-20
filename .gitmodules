@@ -1,3 +1,6 @@
 [submodule "design/rinshari-ui"]
 	path = design/rinshari-ui
 	url = https://github.com/VontaJamal/rinshari-ui.git
+[submodule "governance/seven-shadow-system"]
+	path = governance/seven-shadow-system
+	url = https://github.com/VontaJamal/seven-shadow-system.git

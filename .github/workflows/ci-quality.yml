@@ -45,8 +45,8 @@ jobs:
       - name: Seven Shadow Double Pass
         run: ./scripts/seven-shadow-test.sh 2
 
-      - name: AI Review Guard Policy Check
-        run: npm run guard:ai-review -- --event .faye/examples/pr_review_event.json --event-name pull_request_review --report .faye/reports/ci-ai-review-guard.json
+      - name: Seven Shadow System Policy Check
+        run: npm run guard:seven-shadow -- --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review --report .seven-shadow/reports/ci-report.json
 
       - name: Security Audit (high+)
         run: npm audit --audit-level=high

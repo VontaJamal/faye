@@ -1,0 +1,52 @@
+name: Seven Shadow System
+
+on:
+  pull_request_review:
+    types: [submitted, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  guard:
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: governance/seven-shadow-system/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: governance/seven-shadow-system
+
+      - name: Build Seven Shadow System
+        run: npm run build
+        working-directory: governance/seven-shadow-system
+
+      - name: Run Seven Shadow System
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node governance/seven-shadow-system/dist/src/sevenShadowSystem.js \
+            --policy .seven-shadow/policy.json \
+            --event "$GITHUB_EVENT_PATH" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --report .seven-shadow/reports/github-report.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seven-shadow-system-report
+          path: .seven-shadow/reports/github-report.json
