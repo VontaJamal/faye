@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Faye Control</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <h1>Faye Voice Control</h1>
+      <p>Always-on wake word assistant with one-click profile switching.</p>
+    </header>
+
+    <main class="layout" aria-live="polite">
+      <section class="panel" aria-labelledby="setup-title">
+        <h2 id="setup-title">3-Step Setup</h2>
+        <form id="setup-form">
+          <label>Profile Name
+            <input name="profileName" type="text" value="Primary Voice" required />
+          </label>
+          <label>ElevenLabs API Key
+            <input name="apiKey" type="password" autocomplete="off" />
+          </label>
+          <label>Voice ID
+            <input name="voiceId" type="text" required />
+          </label>
+          <label>Voice Name
+            <input name="voiceName" type="text" required />
+          </label>
+          <label>Wake Word
+            <input name="wakeWord" type="text" value="Faye Arise" required />
+          </label>
+          <label>Telegram Bot Token (optional)
+            <input name="telegramToken" type="password" autocomplete="off" />
+          </label>
+          <label>Telegram Chat ID (optional)
+            <input name="telegramChatId" type="text" />
+          </label>
+          <div class="actions">
+            <button type="submit">Save Setup</button>
+            <button type="button" id="test-voice">Test Voice</button>
+          </div>
+        </form>
+        <p id="setup-status" class="status"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="profiles-title">
+        <h2 id="profiles-title">Voice Profiles</h2>
+        <div id="profile-list"></div>
+        <form id="create-profile-form" class="inline-form">
+          <h3>Create Profile</h3>
+          <label>Name<input name="name" type="text" required /></label>
+          <label>Voice ID<input name="voiceId" type="text" required /></label>
+          <label>Voice Name<input name="voiceName" type="text" required /></label>
+          <label>Wake Word<input name="wakeWord" type="text" required /></label>
+          <button type="submit">Create</button>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="status-title">
+        <h2 id="status-title">System Status</h2>
+        <pre id="health" class="code-block"></pre>
+      </section>
+
+      <section class="panel" aria-labelledby="events-title">
+        <h2 id="events-title">Live Events</h2>
+        <ul id="events"></ul>
+      </section>
+    </main>
+
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>

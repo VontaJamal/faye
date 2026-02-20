@@ -1,74 +1,101 @@
-# Faye 🎙️
+# Faye
 
-**Have your own OpenClaw bot arise and speak to you. One click.**
+Faye is a local-first, always-on voice layer for OpenClaw agents.
 
-> Named after Glenda Faye McPhail.
+It listens for your custom wake word, sends wake/session events, and speaks responses aloud through ElevenLabs TTS.
 
----
+## 3-Step Quick Start
 
-Say a word into the air. Your AI talks back through your speaker. That's it.
+This is the canonical 3-step onboarding flow.
 
-## What It Does
+1. `./scripts/install.sh`
+2. Complete setup prompts (voice, wake word, API key)
+3. Open [http://127.0.0.1:4587](http://127.0.0.1:4587)
 
-- 🗣️ **Your AI speaks** — ElevenLabs TTS through any connected speaker
-- 🎙️ **Always listening** — Wake word detection catches your trigger phrase
-- 🔇 **Zero cost when quiet** — Only uses API credits when you actually speak
-- 🔁 **Two-way voice sessions** — You talk, your AI responds. Out loud. In your room.
+That is the full install path.
 
-## Quick Start
+## What You Get
+
+- Always-on listener service (LaunchAgent on macOS, user systemd on Linux)
+- Local dashboard for saved profiles and one-click activation
+- Local API bound to `127.0.0.1` only
+- Optional Telegram transport + always-on Telegram bridge for OpenClaw continuity
+- Compatibility scripts for speaker install and remote playback
+
+## Commands
+
+- `./scripts/install.sh` — one-shot install/build/setup/services
+- `./scripts/faye setup` — guided setup/update
+- `./scripts/faye profile list|create|update|activate|delete`
+- `./scripts/faye doctor` — dependency/config/service checks
+- `./scripts/speak.sh "text"` — local TTS playback
+- `./scripts/speak-remote.sh "text"` — remote speaker playback via SSH
+- `./scripts/telegram-bridge-control.sh status|restart` — OpenClaw command return bridge
+
+## Always-On Services
+
+- Listener: `./scripts/listener-control.sh status|restart`
+- Dashboard/API: `./scripts/dashboard-control.sh status|restart`
+- Telegram bridge: `./scripts/telegram-bridge-control.sh status|restart`
+
+After installation, all three services auto-start on login and restart on failure.
+
+## Telegram Bridge
+
+The Telegram bridge closes the timing loop between wake events and spoken responses:
+
+1. Listener sends `#faye_wake` / `#faye_voice` events to Telegram.
+2. OpenClaw responds with `#faye_speak ...`.
+3. Bridge consumes `#faye_speak` in real time and triggers local speech automatically.
+
+Protocol reference:
+- `references/openclaw-telegram-protocol.md`
+
+## Dashboard Capabilities
+
+- Save and manage a collection of voice profiles
+- One-click profile activation and listener reload
+- One-click wake-word/profile updates through setup form
+- Live event stream (`wake_detected`, `message_transcribed`, errors)
+- Health panel for dependencies and service state
+
+## Security and Reliability Baselines
+
+- Secret files are written with `0600` permissions
+- Listener/API are local-first with explicit local-only controls
+- ElevenLabs/Telegram requests use timeout + retry behavior
+- Structured logs with secret redaction
+- Wake-word matching avoids regex injection patterns
+
+## Seven Shadow Doctrine
+
+This repository enforces a repeatable Seven Shadow gauntlet for releases:
+
+1. Security
+2. Accessibility
+3. Testing
+4. Execution
+5. Scales
+6. Value
+7. Aesthetics
+
+Run it with:
 
 ```bash
-# Install the skill
-openclaw skills install faye
-
-# Pick your voice
-./scripts/voice-picker.sh
-
-# Start the listener
-./scripts/install-listener.sh
+./scripts/seven-shadow-test.sh
 ```
 
-Say your wake word. Hear your AI respond. That's it.
+Release gate: critical matrix must pass twice consecutively.
 
-## How It Works
+## Rinshari-UI Integration
 
-1. **Listener** monitors your mic (zero API calls in silence)
-2. **Sound detected** → transcribes with ElevenLabs STT
-3. **Wake word matched** → sends to your OpenClaw bot via Telegram
-4. **Bot responds** → generates voice with ElevenLabs TTS → plays through your speaker
+Faye now consumes Rinshari doctrine via `design/rinshari-ui`.
 
-## Requirements
-
-- macOS or Linux
-- [OpenClaw](https://github.com/openclaw/openclaw) agent
-- [ElevenLabs](https://elevenlabs.io) API key ($5/mo starter plan works)
-- `sox` and `ffmpeg` (`brew install sox ffmpeg`)
-- Any Bluetooth or wired speaker
-
-## Configuration
-
-Run `voice-picker.sh` to interactively:
-- Choose from 100+ ElevenLabs voices
-- Set your custom wake word
-- Configure Telegram integration
-- Test your mic and speakers
-
-Config saves to `~/.openclaw/faye-voice-config.json`.
-
-## The Story
-
-Faye started as a personal project — an AI agent named after my late aunt, Glenda Faye McPhail. She needed a voice. What started with a JBL speaker became something that could change how every human talks to AI.
-
-So we open-sourced it. One genius idea, given to the world.
-
----
-
-*"Say the word. She speaks."*
+Before UI changes, follow:
+- `design/rinshari-ui/templates/design-preflight.md`
+- `docs/site-soul-brief.md`
+- `AGENTS.md` managed preflight block
 
 ## License
 
 MIT
-
-## Creator
-
-[@VontaJamal](https://github.com/VontaJamal)

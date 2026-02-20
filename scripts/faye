@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+ensure_build() {
+  if [[ ! -f "$ROOT_DIR/dist/app/cli.js" ]]; then
+    echo "Building Faye TypeScript app..."
+    (cd "$ROOT_DIR" && npm install >/dev/null && npm run build >/dev/null)
+  fi
+}
+
+command_name="${1:-help}"
+extra_args=()
+
+if [[ "$command_name" == "setup" ]]; then
+  has_api_key_flag=false
+  for arg in "$@"; do
+    if [[ "$arg" == "--api-key" ]]; then
+      has_api_key_flag=true
+      break
+    fi
+  done
+
+  if [[ "$has_api_key_flag" == false ]]; then
+    if [[ ! -f "$HOME/.openclaw/secrets/elevenlabs-api-key.txt" ]]; then
+      read -r -s -p "ElevenLabs API key: " api_key
+      echo ""
+      if [[ -n "${api_key:-}" ]]; then
+        extra_args+=("--api-key" "$api_key")
+      fi
+    fi
+  fi
+
+  has_telegram_token=false
+  for arg in "$@"; do
+    if [[ "$arg" == "--telegram-bot-token" ]]; then
+      has_telegram_token=true
+      break
+    fi
+  done
+
+  if [[ "$has_telegram_token" == false ]]; then
+    read -r -p "Telegram bot token (optional): " telegram_token
+    if [[ -n "${telegram_token:-}" ]]; then
+      extra_args+=("--telegram-bot-token" "$telegram_token")
+      read -r -p "Telegram chat ID (optional): " telegram_chat_id
+      if [[ -n "${telegram_chat_id:-}" ]]; then
+        extra_args+=("--telegram-chat-id" "$telegram_chat_id")
+      fi
+    fi
+  fi
+fi
+
+ensure_build
+node "$ROOT_DIR/dist/app/cli.js" "$@" "${extra_args[@]}"

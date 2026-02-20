@@ -1,0 +1,3 @@
+[submodule "design/rinshari-ui"]
+	path = design/rinshari-ui
+	url = https://github.com/VontaJamal/rinshari-ui.git

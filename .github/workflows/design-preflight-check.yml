@@ -1,0 +1,56 @@
+name: Design Preflight Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR body design preflight sections
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          body="$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")"
+
+          fail() {
+            echo "$1" >&2
+            exit 1
+          }
+
+          [[ -n "$body" ]] || fail "PR body is empty. Fill required design preflight fields."
+
+          printf '%s\n' "$body" | grep -q '^## Design preflight completed' || fail "Missing section: Design preflight completed"
+          printf '%s\n' "$body" | grep -q '^## Applied principles' || fail "Missing section: Applied principles"
+          printf '%s\n' "$body" | grep -q '^## Site Soul alignment' || fail "Missing section: Site Soul alignment"
+          printf '%s\n' "$body" | grep -q '^## Animation audit summary' || fail "Missing section: Animation audit summary"
+          printf '%s\n' "$body" | grep -q '^## AI usage declaration' || fail "Missing section: AI usage declaration"
+          printf '%s\n' "$body" | grep -q '^## AI intent and value' || fail "Missing section: AI intent and value"
+          printf '%s\n' "$body" | grep -q '^## AI data handling' || fail "Missing section: AI data handling"
+          printf '%s\n' "$body" | grep -q '^## AI validation and fallback' || fail "Missing section: AI validation and fallback"
+          printf '%s\n' "$body" | grep -q '^## Engineering baseline compliance' || fail "Missing section: Engineering baseline compliance"
+          printf '%s\n' "$body" | grep -q '^## Engineering baseline rationale' || fail "Missing section: Engineering baseline rationale"
+
+          printf '%s\n' "$body" | grep -Eq '^- \[[xX]\] Yes' || fail "You must check '- [x] Yes' under Design preflight completed"
+
+          applied="$(printf '%s\n' "$body" | awk '/^## Applied principles/{flag=1;next}/^## /{flag=0}flag')"
+          soul="$(printf '%s\n' "$body" | awk '/^## Site Soul alignment/{flag=1;next}/^## /{flag=0}flag')"
+          animation="$(printf '%s\n' "$body" | awk '/^## Animation audit summary/{flag=1;next}/^## /{flag=0}flag')"
+          ai_intent="$(printf '%s\n' "$body" | awk '/^## AI intent and value/{flag=1;next}/^## /{flag=0}flag')"
+          ai_data="$(printf '%s\n' "$body" | awk '/^## AI data handling/{flag=1;next}/^## /{flag=0}flag')"
+          ai_validation="$(printf '%s\n' "$body" | awk '/^## AI validation and fallback/{flag=1;next}/^## /{flag=0}flag')"
+          engineering_rationale="$(printf '%s\n' "$body" | awk '/^## Engineering baseline rationale/{flag=1;next}/^## /{flag=0}flag')"
+
+          [[ -n "$(printf '%s' "$applied" | tr -d '[:space:]-')" ]] || fail "Applied principles section cannot be empty"
+          [[ -n "$(printf '%s' "$soul" | tr -d '[:space:]-')" ]] || fail "Site Soul alignment section cannot be empty"
+          [[ -n "$(printf '%s' "$animation" | tr -d '[:space:]-')" ]] || fail "Animation audit summary section cannot be empty"
+          [[ -n "$(printf '%s' "$ai_intent" | tr -d '[:space:]-')" ]] || fail "AI intent and value section cannot be empty"
+          [[ -n "$(printf '%s' "$ai_data" | tr -d '[:space:]-')" ]] || fail "AI data handling section cannot be empty"
+          [[ -n "$(printf '%s' "$ai_validation" | tr -d '[:space:]-')" ]] || fail "AI validation and fallback section cannot be empty"
+          [[ -n "$(printf '%s' "$engineering_rationale" | tr -d '[:space:]-')" ]] || fail "Engineering baseline rationale section cannot be empty"
