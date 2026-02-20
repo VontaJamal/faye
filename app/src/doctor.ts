@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { fileMode, pathExists } from "./utils";
 import { LEGACY_CONFIG_PATH, LOCAL_EVENT_TOKEN_PATH, RUNTIME_CONFIG_PATH } from "./paths";
 import type { ConfigStore } from "./store";
@@ -25,7 +26,12 @@ function hasCommand(command: string): boolean {
   const result = spawnSync("/usr/bin/env", ["bash", "-lc", `command -v ${command}`], {
     stdio: "ignore"
   });
-  return result.status === 0;
+  if (result.status === 0) {
+    return true;
+  }
+
+  const fallbackDirs = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+  return fallbackDirs.some((dir) => fs.existsSync(`${dir}/${command}`));
 }
 
 function modeToOctal(mode: number | null): string {

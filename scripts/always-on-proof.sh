@@ -10,10 +10,14 @@ mkdir -p "$REPORT_DIR"
 
 status_cmd() {
   local label="$1"
-  local cmd="$2"
+  shift
+
+  local printable_cmd
+  printable_cmd="$(printf '%q ' "$@")"
+  printable_cmd="${printable_cmd% }"
   set +e
   local output
-  output="$(bash -lc "$cmd" 2>&1)"
+  output="$("$@" 2>&1)"
   local code=$?
   set -e
 
@@ -21,7 +25,7 @@ status_cmd() {
     echo "## $label"
     echo ""
     echo "- exit_code: $code"
-    echo "- command: \`$cmd\`"
+    echo "- command: \`$printable_cmd\`"
     echo ""
     echo '```'
     echo "$output"
@@ -39,9 +43,9 @@ status_cmd() {
   echo ""
 } >"$REPORT_PATH"
 
-status_cmd "Listener Service" "$ROOT_DIR/scripts/listener-control.sh status"
-status_cmd "Dashboard Service" "$ROOT_DIR/scripts/dashboard-control.sh status"
-status_cmd "Telegram Bridge Service" "$ROOT_DIR/scripts/telegram-bridge-control.sh status"
-status_cmd "Local Health" "curl -sS --max-time 10 http://127.0.0.1:4587/v1/health"
+status_cmd "Listener Service" "$ROOT_DIR/scripts/listener-control.sh" status
+status_cmd "Dashboard Service" "$ROOT_DIR/scripts/dashboard-control.sh" status
+status_cmd "Telegram Bridge Service" "$ROOT_DIR/scripts/telegram-bridge-control.sh" status
+status_cmd "Local Health" curl -sS --max-time 10 http://127.0.0.1:4587/v1/health
 
 echo "Report written: $REPORT_PATH"

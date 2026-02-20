@@ -24,7 +24,7 @@ if [[ "$OS" == "Darwin" ]]; then
       "$0" start
       ;;
     status)
-      if launchctl list | grep -q "$mac_label"; then
+      if launchctl list "$mac_label" >/dev/null 2>&1; then
         echo "telegram-bridge: running"
       else
         echo "telegram-bridge: stopped"
