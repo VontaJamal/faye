@@ -91,6 +91,11 @@ Fix:
 3. Check logs:
 - `~/.openclaw/faye-voice/telegram-bridge.log`
 - `~/.openclaw/faye-voice/telegram-bridge-error.log`
+4. Open dashboard status panel and inspect bridge runtime:
+- state
+- consecutive errors
+- backoff
+- last command status
 
 ## No Audio Playback
 

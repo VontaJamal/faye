@@ -3,6 +3,7 @@ const setupStatus = document.querySelector("#setup-status");
 const profileList = document.querySelector("#profile-list");
 const healthPre = document.querySelector("#health");
 const eventsList = document.querySelector("#events");
+const runtimeStatus = document.querySelector("#runtime-status");
 function setStatus(message, error = false) {
     if (!setupStatus) {
         return;
@@ -50,6 +51,37 @@ async function api(url, init) {
 function optionalField(value) {
     const text = String(value ?? "").trim();
     return text.length > 0 ? text : undefined;
+}
+function formatTimestamp(value) {
+    if (!value) {
+        return "n/a";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) {
+        return value;
+    }
+    return date.toLocaleString();
+}
+function renderRuntimeCell(label, value) {
+    const item = document.createElement("div");
+    item.className = "runtime-item";
+    const title = document.createElement("strong");
+    title.textContent = label;
+    const content = document.createElement("span");
+    content.textContent = value;
+    item.append(title, content);
+    return item;
+}
+function renderRuntimeStatus(runtime) {
+    if (!runtimeStatus) {
+        return;
+    }
+    runtimeStatus.innerHTML = "";
+    if (!runtime) {
+        runtimeStatus.append(renderRuntimeCell("Bridge Runtime", "No runtime data yet."));
+        return;
+    }
+    runtimeStatus.append(renderRuntimeCell("Bridge State", runtime.state), renderRuntimeCell("Consecutive Errors", String(runtime.consecutiveErrors)), renderRuntimeCell("Backoff", `${runtime.backoffMs}ms`), renderRuntimeCell("Last Update", typeof runtime.lastUpdateId === "number" ? String(runtime.lastUpdateId) : "n/a"), renderRuntimeCell("Last Offset", typeof runtime.lastOffset === "number" ? String(runtime.lastOffset) : "n/a"), renderRuntimeCell("Last Command", runtime.lastCommandType ? `${runtime.lastCommandType} (${runtime.lastCommandStatus ?? "unknown"})` : "n/a"), renderRuntimeCell("Last Success", formatTimestamp(runtime.lastSuccessAt)), renderRuntimeCell("Last Error", runtime.lastError ? `${formatTimestamp(runtime.lastErrorAt)} | ${runtime.lastError}` : "n/a"));
 }
 function appendProfileLine(container, text, strong = false) {
     const el = document.createElement(strong ? "strong" : "small");
@@ -142,6 +174,7 @@ async function refreshHealth() {
     }
     const health = await api("/v1/health");
     healthPre.textContent = JSON.stringify(health, null, 2);
+    renderRuntimeStatus(health.bridgeRuntime);
 }
 function bindSetupForm() {
     const form = document.querySelector("#setup-form");

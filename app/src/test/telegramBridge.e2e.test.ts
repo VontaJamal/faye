@@ -127,3 +127,22 @@ test("telegram bridge avoids duplicate speak after simulated crash before offset
 
   assert.equal(localCalls.length, 1);
 });
+
+test("telegram bridge records runtime telemetry for successful command path", async () => {
+  const runtimePatches: Array<Record<string, unknown>> = [];
+
+  await processUpdates("token", 999, [speakUpdate(1004, "s-telemetry-1", "runtime")], makeLogger(), {
+    callLocalApiFn: async () => undefined,
+    sendTelegramFn: async () => undefined,
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async () => false,
+    markProcessedFn: async () => undefined,
+    recordRuntimeFn: async (patch) => {
+      runtimePatches.push({ ...patch });
+    }
+  });
+
+  assert.equal(runtimePatches.some((patch) => patch.state === "processing" && patch.lastUpdateId === 1004), true);
+  assert.equal(runtimePatches.some((patch) => patch.lastCommandType === "speak" && patch.lastCommandStatus === "ok"), true);
+  assert.equal(runtimePatches.some((patch) => patch.lastOffset === 1004), true);
+});

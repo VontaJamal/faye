@@ -63,6 +63,14 @@ class FakeStore {
     return clone(this.config);
   }
 
+  getActiveProfile(): VoiceProfile {
+    const active = this.config.profiles.find((item) => item.id === this.config.activeProfileId);
+    if (!active) {
+      throw new Error("E_ACTIVE_PROFILE_NOT_FOUND");
+    }
+    return clone(active);
+  }
+
   getLocalEventToken(): string {
     return this.localToken;
   }
@@ -276,6 +284,19 @@ test("profiles endpoint returns active profile", async () => {
     const body = response.body as { activeProfileId: string; profiles: Array<{ id: string }> };
     assert.equal(body.activeProfileId, "starter-profile");
     assert.equal(body.profiles.length, 1);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("health endpoint returns bridge runtime field", async () => {
+  const harness = await startHarness();
+  try {
+    const response = await requestJson(harness.baseUrl, "/v1/health");
+    assert.equal(response.status, 200);
+    const body = response.body as { ok: boolean; bridgeRuntime: unknown };
+    assert.equal(typeof body.ok, "boolean");
+    assert.equal("bridgeRuntime" in body, true);
   } finally {
     await harness.close();
   }

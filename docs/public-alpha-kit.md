@@ -18,6 +18,14 @@ If `rec` is missing:
 
 ## 5-Minute Setup
 
+One-liner option:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VontaJamal/faye/main/scripts/bootstrap.sh | bash
+```
+
+Manual path:
+
 1. Install:
 ```bash
 ./scripts/install.sh

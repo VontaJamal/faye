@@ -5,6 +5,7 @@ Faye is built as a free product but engineered with 10 million-user readiness as
 ## Upgrade Rule
 
 Any major capability change must improve all seven shadows, not just the feature itself.
+Any upgrade that adds a new guardrail becomes standard procedure for future upgrades.
 
 1. Security
 - Threat boundaries documented.
@@ -44,3 +45,13 @@ Even while local-first, design every contract as if high-scale distribution is l
 ## Release Gate
 
 `./scripts/seven-shadow-test.sh` must pass two consecutive runs before release tags.
+
+## Royal Guard Upgrade Log
+
+This upgrade permanently adds:
+
+1. Bridge runtime telemetry in `/v1/health` and dashboard status.
+2. Scheduled canary smoke checks (`.github/workflows/hourly-canary.yml`).
+3. Security pattern scanning (`scripts/security-check.sh`).
+4. Beginner-safe distribution bootstrap (`scripts/bootstrap.sh`).
+5. Trust/safety and contributor governance docs as release contracts.

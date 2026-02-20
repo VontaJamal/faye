@@ -32,6 +32,7 @@ This document defines practical SLO targets and operational responses for Faye.
 - `listener-error.log`
 - `telegram-bridge-error.log`
 - API `E_*` error rates
+- Bridge runtime telemetry from `/v1/health` -> `bridgeRuntime`
 
 ## Incident Response Levels
 
@@ -75,3 +76,4 @@ Do not tag release unless all are true:
 - `./scripts/seven-shadow-test.sh 2` passes
 - `npm audit --audit-level=high` passes
 - Manual bridge smoke test passes
+- Canary smoke workflow (`.github/workflows/hourly-canary.yml`) is green

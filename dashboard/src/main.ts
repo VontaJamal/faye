@@ -11,10 +11,32 @@ interface ProfilesResponse {
   profiles: Profile[];
 }
 
+interface BridgeRuntimeStatus {
+  state: "starting" | "idle" | "processing" | "error";
+  updatedAt: string;
+  consecutiveErrors: number;
+  backoffMs: number;
+  lastErrorAt?: string;
+  lastError?: string;
+  lastSuccessAt?: string;
+  lastOffset?: number;
+  lastUpdateId?: number;
+  lastCommandType?: string;
+  lastCommandStatus?: "ok" | "error" | "duplicate";
+}
+
+interface HealthResponse {
+  ok: boolean;
+  doctor: unknown;
+  services: unknown;
+  bridgeRuntime: BridgeRuntimeStatus | null;
+}
+
 const setupStatus = document.querySelector<HTMLParagraphElement>("#setup-status");
 const profileList = document.querySelector<HTMLDivElement>("#profile-list");
 const healthPre = document.querySelector<HTMLPreElement>("#health");
 const eventsList = document.querySelector<HTMLUListElement>("#events");
+const runtimeStatus = document.querySelector<HTMLDivElement>("#runtime-status");
 
 function setStatus(message: string, error = false): void {
   if (!setupStatus) {
@@ -67,6 +89,60 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 function optionalField(value: FormDataEntryValue | null): string | undefined {
   const text = String(value ?? "").trim();
   return text.length > 0 ? text : undefined;
+}
+
+function formatTimestamp(value?: string): string {
+  if (!value) {
+    return "n/a";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
+
+function renderRuntimeCell(label: string, value: string): HTMLElement {
+  const item = document.createElement("div");
+  item.className = "runtime-item";
+
+  const title = document.createElement("strong");
+  title.textContent = label;
+
+  const content = document.createElement("span");
+  content.textContent = value;
+
+  item.append(title, content);
+  return item;
+}
+
+function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null): void {
+  if (!runtimeStatus) {
+    return;
+  }
+
+  runtimeStatus.innerHTML = "";
+  if (!runtime) {
+    runtimeStatus.append(renderRuntimeCell("Bridge Runtime", "No runtime data yet."));
+    return;
+  }
+
+  runtimeStatus.append(
+    renderRuntimeCell("Bridge State", runtime.state),
+    renderRuntimeCell("Consecutive Errors", String(runtime.consecutiveErrors)),
+    renderRuntimeCell("Backoff", `${runtime.backoffMs}ms`),
+    renderRuntimeCell("Last Update", typeof runtime.lastUpdateId === "number" ? String(runtime.lastUpdateId) : "n/a"),
+    renderRuntimeCell("Last Offset", typeof runtime.lastOffset === "number" ? String(runtime.lastOffset) : "n/a"),
+    renderRuntimeCell(
+      "Last Command",
+      runtime.lastCommandType ? `${runtime.lastCommandType} (${runtime.lastCommandStatus ?? "unknown"})` : "n/a"
+    ),
+    renderRuntimeCell("Last Success", formatTimestamp(runtime.lastSuccessAt)),
+    renderRuntimeCell(
+      "Last Error",
+      runtime.lastError ? `${formatTimestamp(runtime.lastErrorAt)} | ${runtime.lastError}` : "n/a"
+    )
+  );
 }
 
 function appendProfileLine(container: HTMLElement, text: string, strong = false): void {
@@ -167,8 +243,9 @@ async function refreshHealth(): Promise<void> {
     return;
   }
 
-  const health = await api<unknown>("/v1/health");
+  const health = await api<HealthResponse>("/v1/health");
   healthPre.textContent = JSON.stringify(health, null, 2);
+  renderRuntimeStatus(health.bridgeRuntime);
 }
 
 function bindSetupForm(): void {

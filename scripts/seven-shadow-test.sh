@@ -7,6 +7,7 @@ RUNS="${1:-2}"
 run_matrix() {
   echo "[1] Security lint and shell validation"
   (cd "$ROOT_DIR" && bash -n scripts/*.sh)
+  (cd "$ROOT_DIR" && ./scripts/security-check.sh)
 
   echo "[2] Dependency and build integrity"
   (cd "$ROOT_DIR" && npm run build)

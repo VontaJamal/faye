@@ -13,6 +13,7 @@ import type { Logger } from "./logger";
 import { DASHBOARD_PUBLIC_DIR, DEFAULT_ELEVENLABS_KEY_PATH, DEFAULT_TELEGRAM_TOKEN_PATH } from "./paths";
 import { ServiceControl } from "./service-control";
 import type { ConfigStore } from "./store";
+import { readBridgeRuntimeStatus } from "./telegramBridge";
 import {
   LocalIngestEventSchema,
   ProfileCreateInputSchema,
@@ -116,6 +117,7 @@ export function createApiServer(deps: ApiDependencies): express.Express {
       const listener = await deps.services.listenerStatus();
       const dashboard = await deps.services.dashboardStatus();
       const bridge = await deps.services.bridgeStatus();
+      const bridgeRuntime = await readBridgeRuntimeStatus();
       res.json({
         ok: doctor.ok,
         doctor,
@@ -123,7 +125,8 @@ export function createApiServer(deps: ApiDependencies): express.Express {
           listener,
           dashboard,
           bridge
-        }
+        },
+        bridgeRuntime
       });
     } catch (error) {
       routeError(deps.logger, res, error);

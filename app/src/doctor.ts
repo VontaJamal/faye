@@ -11,6 +11,7 @@ export interface DoctorReport {
     runtimeConfig: boolean;
     legacyConfig: boolean;
     localEventToken: boolean;
+    activeApiKey: boolean;
   };
   secretPermissions: {
     localEventTokenMode: string;
@@ -37,13 +38,15 @@ function modeToOctal(mode: number | null): string {
 export async function runDoctor(store: ConfigStore): Promise<DoctorReport> {
   const config = store.getConfig();
   const active = store.getActiveProfile();
+  const activeApiKeyPath = active.elevenLabsApiKeyPath.replace(/^~\//, `${process.env.HOME ?? ""}/`);
 
   const runtimeExists = await pathExists(RUNTIME_CONFIG_PATH);
   const legacyExists = await pathExists(LEGACY_CONFIG_PATH);
   const tokenExists = await pathExists(LOCAL_EVENT_TOKEN_PATH);
+  const apiKeyExists = await pathExists(activeApiKeyPath);
 
   const localTokenMode = modeToOctal(await fileMode(LOCAL_EVENT_TOKEN_PATH));
-  const apiKeyMode = modeToOctal(await fileMode(active.elevenLabsApiKeyPath.replace(/^~\//, `${process.env.HOME ?? ""}/`)));
+  const apiKeyMode = modeToOctal(await fileMode(activeApiKeyPath));
 
   const commands = {
     node: hasCommand("node"),
@@ -58,7 +61,9 @@ export async function runDoctor(store: ConfigStore): Promise<DoctorReport> {
     runtimeExists &&
     legacyExists &&
     tokenExists &&
-    localTokenMode === "0600";
+    localTokenMode === "0600" &&
+    apiKeyExists &&
+    apiKeyMode === "0600";
 
   return {
     ok,
@@ -67,7 +72,8 @@ export async function runDoctor(store: ConfigStore): Promise<DoctorReport> {
     files: {
       runtimeConfig: runtimeExists,
       legacyConfig: legacyExists,
-      localEventToken: tokenExists
+      localEventToken: tokenExists,
+      activeApiKey: apiKeyExists
     },
     secretPermissions: {
       localEventTokenMode: localTokenMode,

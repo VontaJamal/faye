@@ -39,6 +39,16 @@ Expected: JSON with `"ok": true`.
 ```
 Expected: audible playback.
 
+## Install In One Command
+
+If you want a single command that clones and installs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VontaJamal/faye/main/scripts/bootstrap.sh | bash
+```
+
+More options: `docs/distribution.md`
+
 ## 3-step Quick Start
 
 1. `./scripts/install.sh`
@@ -52,6 +62,13 @@ For onboarding other people quickly:
 - One-page quickstart: `docs/public-alpha-kit.md`
 - Troubleshooting: `references/troubleshooting.md`
 - Media pack notes: `docs/media/README.md`
+
+## Trust and Safety
+
+- Security policy: `SECURITY.md`
+- Privacy overview: `docs/privacy.md`
+- Threat model: `docs/threat-model.md`
+- Reliability targets: `references/reliability-slo.md`
 
 ## Everyday Commands
 
@@ -116,10 +133,18 @@ Faye uses a Seven Shadow quality standard:
 6. Value
 7. Aesthetics
 
+Doctrine: `references/seven-shadow-doctrine.md`
+
 Run the gauntlet:
 
 ```bash
 ./scripts/seven-shadow-test.sh
+```
+
+Scheduled reliability smoke:
+
+```bash
+npm run canary
 ```
 
 ## Seven Shadow System
@@ -138,11 +163,17 @@ Local smoke check:
 npm run guard:seven-shadow -- --policy .seven-shadow/policy-smoke.json --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review
 ```
 
+## Contributing
+
+- Start here: `CONTRIBUTING.md`
+- Roadmap: `docs/roadmap.md`
+- Open issue templates: `.github/ISSUE_TEMPLATE`
+
 ## For Maintainers (Optional)
 
 If you are just using Faye, you can skip this.
 
-Rinshari-UI is the design playbook used when contributors change UI behavior:
+Rinshari-UI is the design playbook for maintainers who change UI behavior:
 
 - `design/rinshari-ui/templates/design-preflight.md`
 - `docs/site-soul-brief.md`

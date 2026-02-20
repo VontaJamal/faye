@@ -1,3 +1,17 @@
+## Summary
+
+What changed and why (plain language):
+
+## User Impact
+
+Who benefits and what behavior is different:
+
+## Validation
+
+- [ ] `npm run build`
+- [ ] `npm test`
+- [ ] `./scripts/seven-shadow-test.sh 2` (for release-facing changes)
+
 <!-- RINSHARI-UI:START -->
 ## Design preflight completed
 - [ ] Yes
