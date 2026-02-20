@@ -10,6 +10,7 @@ import { runDoctor } from "./doctor";
 import type { EventHub } from "./events";
 import { ElevenLabsClient } from "./elevenlabs";
 import type { Logger } from "./logger";
+import { MetricsCollector, metricsSnapshotToPrometheus } from "./metrics";
 import { DASHBOARD_PUBLIC_DIR, DEFAULT_ELEVENLABS_KEY_PATH, DEFAULT_TELEGRAM_TOKEN_PATH } from "./paths";
 import { RoundTripCoordinator } from "./roundTripCoordinator";
 import { ServiceControl } from "./service-control";
@@ -90,6 +91,9 @@ export function createApiServer(deps: ApiDependencies): express.Express {
     store: deps.store,
     logger: deps.logger
   });
+  const metrics = new MetricsCollector({
+    events: deps.events
+  });
 
   const normalizeOptional = (value: unknown): string | undefined => {
     if (typeof value !== "string") {
@@ -133,8 +137,23 @@ export function createApiServer(deps: ApiDependencies): express.Express {
           bridge
         },
         bridgeRuntime,
-        roundTrip: roundTrip.getSnapshot()
+        roundTrip: roundTrip.getSnapshot(),
+        metrics: metrics.getSnapshot()
       });
+    } catch (error) {
+      routeError(deps.logger, res, error);
+    }
+  });
+
+  app.get("/v1/metrics", (req, res) => {
+    try {
+      const snapshot = metrics.getSnapshot();
+      const format = typeof req.query.format === "string" ? req.query.format.toLowerCase() : "";
+      if (format === "prom" || format === "prometheus" || format === "text") {
+        res.type("text/plain").send(metricsSnapshotToPrometheus(snapshot));
+        return;
+      }
+      res.json(snapshot);
     } catch (error) {
       routeError(deps.logger, res, error);
     }

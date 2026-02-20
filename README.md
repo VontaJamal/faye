@@ -81,6 +81,8 @@ For onboarding other people quickly:
 - Install: `./scripts/install.sh`
 - Setup/update: `./scripts/faye setup`
 - Health check: `./scripts/faye doctor`
+- Metrics (JSON): `curl -s http://127.0.0.1:4587/v1/metrics`
+- Metrics (Prom): `curl -s http://127.0.0.1:4587/v1/metrics?format=prom`
 - List profiles: `./scripts/faye profile list`
 - Speak test: `./scripts/speak.sh "Hello from Faye"`
 - One-command demo: `npm run demo`

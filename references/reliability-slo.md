@@ -21,6 +21,7 @@ This document defines practical SLO targets and operational responses for Faye.
 - `listener-control.sh status`
 - `dashboard-control.sh status`
 - `telegram-bridge-control.sh status`
+- `curl -s http://127.0.0.1:4587/v1/metrics`
 
 2. Event consistency
 - `#faye_wake` emitted
@@ -33,6 +34,11 @@ This document defines practical SLO targets and operational responses for Faye.
 - `telegram-bridge-error.log`
 - API `E_*` error rates
 - Bridge runtime telemetry from `/v1/health` -> `bridgeRuntime`
+- Metrics telemetry from `/v1/metrics`:
+  - wake detections
+  - spoken success/error counters
+  - p95/p99 wake-to-spoken latency
+  - round-trip error rate
 
 ## Incident Response Levels
 

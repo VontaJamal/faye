@@ -294,10 +294,62 @@ test("health endpoint returns bridge runtime field", async () => {
   try {
     const response = await requestJson(harness.baseUrl, "/v1/health");
     assert.equal(response.status, 200);
-    const body = response.body as { ok: boolean; bridgeRuntime: unknown; roundTrip: { activeSessions: number } };
+    const body = response.body as {
+      ok: boolean;
+      bridgeRuntime: unknown;
+      roundTrip: { activeSessions: number };
+      metrics: { eventCounts: { wakeDetections: number } };
+    };
     assert.equal(typeof body.ok, "boolean");
     assert.equal("bridgeRuntime" in body, true);
     assert.equal(typeof body.roundTrip.activeSessions, "number");
+    assert.equal(typeof body.metrics.eventCounts.wakeDetections, "number");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("metrics endpoint tracks wake-to-spoken flow", async () => {
+  const harness = await startHarness();
+  try {
+    const acceptedWake = await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-faye-local-token": "test-local-token"
+      },
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-metrics-1", heard: "faye arise" } })
+    });
+    assert.equal(acceptedWake.status, 202);
+
+    const acceptedSpoken = await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-faye-local-token": "test-local-token"
+      },
+      body: JSON.stringify({ type: "bridge_spoken", payload: { session_id: "s-metrics-1", status: "ok" } })
+    });
+    assert.equal(acceptedSpoken.status, 202);
+
+    const metrics = await requestJson(harness.baseUrl, "/v1/metrics");
+    assert.equal(metrics.status, 200);
+
+    const body = metrics.body as {
+      eventCounts: { wakeDetections: number };
+      roundTrip: { bridgeSpokenOk: number };
+      latency: { samples: number; p95Ms: number | null };
+    };
+    assert.equal(body.eventCounts.wakeDetections, 1);
+    assert.equal(body.roundTrip.bridgeSpokenOk, 1);
+    assert.equal(body.latency.samples >= 1, true);
+    assert.equal(body.latency.p95Ms !== null, true);
+
+    const promResponse = await fetch(`${harness.baseUrl}/v1/metrics?format=prom`);
+    assert.equal(promResponse.status, 200);
+    const promBody = await promResponse.text();
+    assert.equal(promBody.includes("faye_wake_detections_total"), true);
+    assert.equal(promBody.includes("faye_roundtrip_latency_p95_ms"), true);
   } finally {
     await harness.close();
   }

@@ -60,12 +60,44 @@ interface RoundTripSnapshot {
     | null;
 }
 
+interface MetricsSnapshot {
+  generatedAt: string;
+  eventCounts: {
+    wakeDetections: number;
+    messageTranscribed: number;
+    listenerErrors: number;
+    bridgeSpeakReceived: number;
+  };
+  roundTrip: {
+    bridgeSpokenOk: number;
+    bridgeSpokenError: number;
+    bridgeSpokenDuplicate: number;
+    retriesSent: number;
+    timeouts: number;
+    activeTrackedSessions: number;
+  };
+  latency: {
+    samples: number;
+    lastMs: number | null;
+    p50Ms: number | null;
+    p95Ms: number | null;
+    p99Ms: number | null;
+    maxMs: number | null;
+  };
+  errorRate: {
+    numerator: number;
+    denominator: number;
+    value: number | null;
+  };
+}
+
 interface HealthResponse {
   ok: boolean;
   doctor: unknown;
   services: unknown;
   bridgeRuntime: BridgeRuntimeStatus | null;
   roundTrip?: RoundTripSnapshot;
+  metrics?: MetricsSnapshot;
 }
 
 const setupStatus = document.querySelector<HTMLParagraphElement>("#setup-status");
@@ -152,7 +184,14 @@ function renderRuntimeCell(label: string, value: string): HTMLElement {
   return item;
 }
 
-function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null, roundTrip?: RoundTripSnapshot): void {
+function formatPercent(value: number | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null, roundTrip?: RoundTripSnapshot, metrics?: MetricsSnapshot): void {
   if (!runtimeStatus) {
     return;
   }
@@ -198,6 +237,17 @@ function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null, roundTrip?: Ro
     renderRuntimeCell("Round-Trip Completed", String(roundTrip.totals.completed)),
     renderRuntimeCell("Round-Trip Last Completed", lastCompleted),
     renderRuntimeCell("Round-Trip Last Timeout", lastTimeout)
+  );
+
+  if (!metrics) {
+    return;
+  }
+
+  runtimeStatus.append(
+    renderRuntimeCell("Wake Detections", String(metrics.eventCounts.wakeDetections)),
+    renderRuntimeCell("Spoken OK", String(metrics.roundTrip.bridgeSpokenOk)),
+    renderRuntimeCell("p95 Latency", metrics.latency.p95Ms === null ? "n/a" : `${metrics.latency.p95Ms}ms`),
+    renderRuntimeCell("Error Rate", formatPercent(metrics.errorRate.value))
   );
 }
 
@@ -301,7 +351,7 @@ async function refreshHealth(): Promise<void> {
 
   const health = await api<HealthResponse>("/v1/health");
   healthPre.textContent = JSON.stringify(health, null, 2);
-  renderRuntimeStatus(health.bridgeRuntime, health.roundTrip);
+  renderRuntimeStatus(health.bridgeRuntime, health.roundTrip, health.metrics);
 }
 
 function bindSetupForm(): void {

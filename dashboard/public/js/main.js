@@ -72,7 +72,13 @@ function renderRuntimeCell(label, value) {
     item.append(title, content);
     return item;
 }
-function renderRuntimeStatus(runtime, roundTrip) {
+function formatPercent(value) {
+    if (value === null) {
+        return "n/a";
+    }
+    return `${(value * 100).toFixed(1)}%`;
+}
+function renderRuntimeStatus(runtime, roundTrip, metrics) {
     if (!runtimeStatus) {
         return;
     }
@@ -92,6 +98,10 @@ function renderRuntimeStatus(runtime, roundTrip) {
         ? `${roundTrip.lastTimeout.reason} @ ${formatTimestamp(roundTrip.lastTimeout.at)}`
         : "n/a";
     runtimeStatus.append(renderRuntimeCell("Round-Trip Active", String(roundTrip.activeSessions)), renderRuntimeCell("Round-Trip Retries", String(roundTrip.totals.retriesSent)), renderRuntimeCell("Round-Trip Timeouts", String(roundTrip.totals.timeouts)), renderRuntimeCell("Round-Trip Completed", String(roundTrip.totals.completed)), renderRuntimeCell("Round-Trip Last Completed", lastCompleted), renderRuntimeCell("Round-Trip Last Timeout", lastTimeout));
+    if (!metrics) {
+        return;
+    }
+    runtimeStatus.append(renderRuntimeCell("Wake Detections", String(metrics.eventCounts.wakeDetections)), renderRuntimeCell("Spoken OK", String(metrics.roundTrip.bridgeSpokenOk)), renderRuntimeCell("p95 Latency", metrics.latency.p95Ms === null ? "n/a" : `${metrics.latency.p95Ms}ms`), renderRuntimeCell("Error Rate", formatPercent(metrics.errorRate.value)));
 }
 function appendProfileLine(container, text, strong = false) {
     const el = document.createElement(strong ? "strong" : "small");
@@ -184,7 +194,7 @@ async function refreshHealth() {
     }
     const health = await api("/v1/health");
     healthPre.textContent = JSON.stringify(health, null, 2);
-    renderRuntimeStatus(health.bridgeRuntime, health.roundTrip);
+    renderRuntimeStatus(health.bridgeRuntime, health.roundTrip, health.metrics);
 }
 function bindSetupForm() {
     const form = document.querySelector("#setup-form");
