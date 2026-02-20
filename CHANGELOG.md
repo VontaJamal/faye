@@ -2,6 +2,7 @@
 
 ## Unreleased - 2026-02-20
 
+- 5bb8d8e feat: launch alpha operations loop with burn-in and triage automation
 - 60dfc30 feat: complete five-task reliability, distribution, and governance upgrades
 - c7dbe80 docs: add public alpha kit onboarding and beginner troubleshooting
 - 1ed4c0f feat: add bridge idempotency, demo flow, and maintainer automation
