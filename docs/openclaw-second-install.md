@@ -55,7 +55,8 @@ Expected:
 
 Open:
 
-- `http://127.0.0.1:4587`
+- `faye open` (or `faye-open`)
+- fallback: `http://127.0.0.1:4587`
 
 Complete all checklist items:
 
@@ -99,8 +100,27 @@ UX onboarding KPI (local only):
 
 - `.faye/reports/ui-kpi.json`
 
+## Panic and reset recovery
+
+Use these no-risk controls when onboarding gets stuck:
+
+1. Panic Stop (keeps dashboard up):
+
+```bash
+faye panic --confirm "PANIC STOP"
+```
+
+2. Factory Reset (full clean start, archive first):
+
+```bash
+faye reset --confirm "FACTORY RESET"
+```
+
+Dashboard equivalent: **Recovery & Panic** panel.
+
 ## Failure recovery
 
 1. Run `./scripts/preflight.sh`.
-2. Run `./scripts/faye doctor`.
-3. Attach latest `.faye/reports/install-attempt-*.json` and `.faye/reports/ui-kpi.json` when filing issues.
+2. Run `faye status`.
+3. Run `./scripts/faye doctor`.
+4. Attach latest `.faye/reports/install-attempt-*.json` and `.faye/reports/ui-kpi.json` when filing issues.

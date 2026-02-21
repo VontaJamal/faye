@@ -31,6 +31,8 @@ What should have happened.
 
 Paste relevant output from:
 
+- `faye status`
+- `faye panic --confirm "PANIC STOP" --json` or `faye reset --confirm "FACTORY RESET" --json` (if used)
 - `./scripts/faye first-success --json` (include `.faye/reports/install-attempt-*.json`)
 - `.faye/reports/ui-kpi.json`
 - `./scripts/faye doctor`

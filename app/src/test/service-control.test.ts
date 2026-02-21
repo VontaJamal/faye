@@ -35,6 +35,9 @@ test("service-control routes status and restart calls through injected runner", 
   await services.listenerStatus();
   await services.dashboardStatus();
   await services.bridgeStatus();
+  await services.stopListener();
+  await services.stopDashboard();
+  await services.stopBridge();
   await services.restartListener();
   await services.restartDashboard();
   await services.restartBridge();
@@ -43,6 +46,9 @@ test("service-control routes status and restart calls through injected runner", 
     "/tmp/listener.sh status",
     "/tmp/dashboard.sh status",
     "/tmp/bridge.sh status",
+    "/tmp/listener.sh stop",
+    "/tmp/dashboard.sh stop",
+    "/tmp/bridge.sh stop",
     "/tmp/listener.sh restart",
     "/tmp/dashboard.sh restart",
     "/tmp/bridge.sh restart"
@@ -57,10 +63,16 @@ test("service-control logs warnings for failed restarts", async () => {
     runShellFn: async () => ({ code: 1, stdout: "", stderr: "failed" })
   });
 
+  await services.stopListener();
+  await services.stopDashboard();
+  await services.stopBridge();
   await services.restartListener();
   await services.restartDashboard();
   await services.restartBridge();
 
+  assert.equal(loggerMessages.some((entry) => entry.code === "LISTENER_STOP_FAILED"), true);
+  assert.equal(loggerMessages.some((entry) => entry.code === "DASHBOARD_STOP_FAILED"), true);
+  assert.equal(loggerMessages.some((entry) => entry.code === "BRIDGE_STOP_FAILED"), true);
   assert.equal(loggerMessages.some((entry) => entry.code === "LISTENER_RESTART_FAILED"), true);
   assert.equal(loggerMessages.some((entry) => entry.code === "DASHBOARD_RESTART_FAILED"), true);
   assert.equal(loggerMessages.some((entry) => entry.code === "BRIDGE_RESTART_FAILED"), true);

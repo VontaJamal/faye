@@ -38,6 +38,11 @@ async function makeMockBinary(dir: string, name: string, body: string): Promise<
   await fs.chmod(target, 0o755);
 }
 
+async function makeMockScript(filePath: string, body: string): Promise<void> {
+  await fs.writeFile(filePath, `#!/usr/bin/env bash\nset -euo pipefail\n${body}\n`, "utf8");
+  await fs.chmod(filePath, 0o755);
+}
+
 test("cli preflight supports env overrides", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "faye-cli-preflight-"));
 
@@ -121,4 +126,42 @@ exit 0`
   assert.equal(report.source, "faye-first-success");
   assert.equal(report.success, true);
   assert.equal(Array.isArray(report.steps), true);
+});
+
+test("cli open --print returns dashboard url", async () => {
+  const result = await runCli(["open", "--print"]);
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout.trim(), "http://127.0.0.1:4587");
+});
+
+test("cli panic runs panic-stop flow with typed confirmation", async () => {
+  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "faye-cli-panic-"));
+  const tempScripts = path.join(tempHome, "mock-control");
+  await fs.mkdir(tempScripts, { recursive: true });
+
+  const listenerControl = path.join(tempScripts, "listener-control.sh");
+  const bridgeControl = path.join(tempScripts, "bridge-control.sh");
+  const dashboardControl = path.join(tempScripts, "dashboard-control.sh");
+
+  await makeMockScript(listenerControl, "echo listener stopped");
+  await makeMockScript(bridgeControl, "echo bridge stopped");
+  await makeMockScript(dashboardControl, "echo dashboard stopped");
+
+  const reportsDir = path.join(tempHome, ".faye", "reports");
+  await fs.mkdir(reportsDir, { recursive: true });
+
+  const result = await runCli(["panic", "--confirm", "PANIC STOP", "--json"], {
+    HOME: tempHome,
+    FAYE_LISTENER_CONTROL_SCRIPT: listenerControl,
+    FAYE_BRIDGE_CONTROL_SCRIPT: bridgeControl,
+    FAYE_DASHBOARD_CONTROL_SCRIPT: dashboardControl,
+    FAYE_REPORTS_DIR: reportsDir,
+    FAYE_RUNTIME_CONFIG: path.join(tempHome, "runtime.json"),
+    FAYE_VOICE_CONFIG: path.join(tempHome, "legacy.json")
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.result.action, "panic-stop");
 });

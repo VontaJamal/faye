@@ -57,7 +57,16 @@ if ! ./scripts/install.sh; then
   fail "E_BOOTSTRAP_INSTALL_FAILED" "Install script failed." "Review install output for the generated install report path and fix the failing step."
 fi
 
+if ! ./scripts/install-shims.sh; then
+  fail "E_BOOTSTRAP_SHIM_INSTALL_FAILED" "Command shim installation failed." "Run ./scripts/install-shims.sh manually and ensure ~/.local/bin is writable."
+fi
+
 echo ""
 echo "Bootstrap complete."
 echo "Source directory: $TARGET_DIR"
 echo "Dashboard: http://127.0.0.1:4587"
+echo "Quick commands:"
+echo "  faye open"
+echo "  faye status"
+echo "  faye panic --confirm \"PANIC STOP\""
+echo "  faye reset --confirm \"FACTORY RESET\""

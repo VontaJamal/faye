@@ -16,24 +16,34 @@ import {
   CONVERSATION_STOP_REQUEST_PATH,
   DASHBOARD_PUBLIC_DIR,
   DEFAULT_ELEVENLABS_KEY_PATH,
-  DEFAULT_TELEGRAM_TOKEN_PATH
+  DEFAULT_TELEGRAM_TOKEN_PATH,
+  FAYE_STATE_DIR,
+  LEGACY_CONFIG_PATH,
+  OPENCLAW_DIR,
+  REPORTS_DIR,
+  RUNTIME_CONFIG_PATH,
+  SECRETS_DIR
 } from "./paths";
 import { RoundTripCoordinator } from "./roundTripCoordinator";
 import { ServiceControl } from "./service-control";
 import type { ConfigStore } from "./store";
 import { readBridgeRuntimeStatus } from "./telegramBridge";
 import {
+  FactoryResetRequestSchema,
   LocalIngestEventSchema,
+  PanicStopRequestSchema,
   ProfileCreateInputSchema,
   ProfilePatchInputSchema,
   SetupInputSchema,
   SpeakTestInputSchema,
+  type SystemRecoveryResult,
   type UxKpiReport,
   type VoiceProfile
 } from "./types";
 import { UxKpiTracker } from "./ux-kpi";
 import {
   clearConversationStopRequest,
+  pathExists,
   readConversationStopRequest,
   writeConversationStopRequest,
   writeSecret
@@ -47,7 +57,18 @@ interface ApiDependencies {
   services: ServiceControl;
   uxKpi?: UxKpiTracker;
   conversationStopRequestPath?: string;
+  systemPaths?: {
+    openclawDir?: string;
+    secretsDir?: string;
+    stateDir?: string;
+    runtimeConfigPath?: string;
+    legacyConfigPath?: string;
+    reportsDir?: string;
+  };
 }
+
+const PANIC_STOP_CONFIRMATION = "PANIC STOP";
+const FACTORY_RESET_CONFIRMATION = "FACTORY RESET";
 
 function readPositiveEnvInt(name: string): number | undefined {
   const raw = process.env[name];
@@ -275,6 +296,117 @@ export function createApiServer(deps: ApiDependencies): express.Express {
       return false;
     }
     return true;
+  };
+
+  const normalizeConfirmation = (value: unknown): string => {
+    if (typeof value !== "string") {
+      return "";
+    }
+    return value
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, " ");
+  };
+
+  const ensureConfirmation = (actual: string, expected: string, code: string): void => {
+    if (normalizeConfirmation(actual) !== expected) {
+      throw new Error(code);
+    }
+  };
+
+  const recoveryPaths = {
+    openclawDir: deps.systemPaths?.openclawDir ?? OPENCLAW_DIR,
+    secretsDir: deps.systemPaths?.secretsDir ?? SECRETS_DIR,
+    stateDir: deps.systemPaths?.stateDir ?? FAYE_STATE_DIR,
+    runtimeConfigPath: deps.systemPaths?.runtimeConfigPath ?? RUNTIME_CONFIG_PATH,
+    legacyConfigPath: deps.systemPaths?.legacyConfigPath ?? LEGACY_CONFIG_PATH,
+    reportsDir: deps.systemPaths?.reportsDir ?? REPORTS_DIR
+  };
+
+  const volatileRuntimeFiles = [
+    stopRequestPath,
+    path.join(recoveryPaths.stateDir, "telegram-bridge-runtime.json"),
+    path.join(recoveryPaths.stateDir, "telegram-bridge-offset.txt"),
+    path.join(recoveryPaths.stateDir, "telegram-bridge-processed-keys.json")
+  ];
+
+  const endActiveSessionForRecovery = async (requestedReason: string): Promise<{
+    endedSessionId: string | null;
+    stopRequestWritten: boolean;
+  }> => {
+    const active = conversation.getActiveSessionSnapshot();
+    if (!active || active.state === "ended") {
+      return { endedSessionId: null, stopRequestWritten: false };
+    }
+
+    const session = conversation.endSession(active.sessionId, "external_stop");
+    if (!session) {
+      return { endedSessionId: null, stopRequestWritten: false };
+    }
+
+    await writeConversationStopRequest(stopRequestPath, {
+      sessionId: active.sessionId,
+      reason: requestedReason,
+      requestedAt: new Date().toISOString()
+    });
+
+    deps.events.publish("conversation_ended", {
+      session_id: active.sessionId,
+      reason: "external_stop",
+      requested_reason: requestedReason
+    });
+
+    return { endedSessionId: active.sessionId, stopRequestWritten: true };
+  };
+
+  const clearVolatileRuntimeFiles = async (): Promise<string[]> => {
+    const cleared: string[] = [];
+    for (const filePath of volatileRuntimeFiles) {
+      await fs.rm(filePath, { force: true }).catch(() => undefined);
+      cleared.push(filePath);
+    }
+    return cleared;
+  };
+
+  const archiveDiagnostics = async (archivePath: string): Promise<string[]> => {
+    const archived: string[] = [];
+    const targets: Array<{ source: string; name: string }> = [
+      { source: recoveryPaths.runtimeConfigPath, name: path.basename(recoveryPaths.runtimeConfigPath) },
+      { source: recoveryPaths.legacyConfigPath, name: path.basename(recoveryPaths.legacyConfigPath) },
+      { source: recoveryPaths.secretsDir, name: "secrets" },
+      { source: recoveryPaths.stateDir, name: "faye-voice" },
+      { source: recoveryPaths.reportsDir, name: "reports" }
+    ];
+
+    await fs.mkdir(archivePath, { recursive: true, mode: 0o700 });
+
+    for (const target of targets) {
+      if (!(await pathExists(target.source))) {
+        continue;
+      }
+      await fs.cp(target.source, path.join(archivePath, target.name), { recursive: true, force: true });
+      archived.push(target.source);
+    }
+
+    return archived;
+  };
+
+  const wipeFactoryResetTargets = async (): Promise<string[]> => {
+    const wiped: string[] = [];
+    const targets = [
+      recoveryPaths.runtimeConfigPath,
+      recoveryPaths.legacyConfigPath,
+      recoveryPaths.secretsDir,
+      recoveryPaths.stateDir,
+      recoveryPaths.reportsDir
+    ];
+
+    for (const target of targets) {
+      await fs.rm(target, { recursive: true, force: true });
+      wiped.push(target);
+    }
+
+    return wiped;
   };
 
   const speakWithProfile = async (text: string, profileId?: string): Promise<{ profileId: string }> => {
@@ -676,6 +808,135 @@ export function createApiServer(deps: ApiDependencies): express.Express {
       await recordUxKpi("bridge-restart-failure", async () => {
         await uxKpi.recordBridgeRestartFailure(error);
       });
+      routeError(deps.logger, res, error);
+    }
+  });
+
+  app.post("/v1/system/panic-stop", async (req, res) => {
+    try {
+      const payload = PanicStopRequestSchema.parse(req.body ?? {});
+      ensureConfirmation(payload.confirmation, PANIC_STOP_CONFIRMATION, "E_PANIC_CONFIRMATION_REQUIRED");
+      const requestedReason = normalizeReason(payload.reason, "dashboard_panic_stop");
+      const requestedAt = new Date().toISOString();
+
+      deps.events.publish("system_panic_stop_requested", {
+        reason: requestedReason
+      });
+
+      const sessionResult = await endActiveSessionForRecovery(requestedReason);
+      const listener = await deps.services.stopListener();
+      const bridge = await deps.services.stopBridge();
+      const clearedRuntimeFiles = await clearVolatileRuntimeFiles();
+
+      const errors: string[] = [];
+      if (listener.code !== 0) {
+        errors.push("listener_stop_failed");
+      }
+      if (bridge.code !== 0) {
+        errors.push("bridge_stop_failed");
+      }
+
+      const result: SystemRecoveryResult = {
+        schemaVersion: 1,
+        action: "panic-stop",
+        requestedAt,
+        completedAt: new Date().toISOString(),
+        confirmationMatched: true,
+        endedSessionId: sessionResult.endedSessionId,
+        stopRequestWritten: sessionResult.stopRequestWritten,
+        dashboardKeptRunning: true,
+        archivePath: null,
+        clearedRuntimeFiles,
+        wipedPaths: [],
+        stoppedServices: {
+          listener,
+          bridge
+        },
+        notes: ["dashboard_kept_running=true"],
+        errors
+      };
+
+      deps.events.publish("system_panic_stop_completed", {
+        ok: errors.length === 0,
+        endedSessionId: sessionResult.endedSessionId,
+        clearedRuntimeFiles: clearedRuntimeFiles.length,
+        errors
+      });
+
+      res.status(errors.length === 0 ? 200 : 500).json({
+        ok: errors.length === 0,
+        result
+      });
+    } catch (error) {
+      routeError(deps.logger, res, error);
+    }
+  });
+
+  app.post("/v1/system/factory-reset", async (req, res) => {
+    try {
+      const payload = FactoryResetRequestSchema.parse(req.body ?? {});
+      ensureConfirmation(payload.confirmation, FACTORY_RESET_CONFIRMATION, "E_FACTORY_RESET_CONFIRMATION_REQUIRED");
+      const requestedReason = normalizeReason(payload.reason, "dashboard_factory_reset");
+      const requestedAt = new Date().toISOString();
+      const stamp = requestedAt.replace(/[:.]/g, "-");
+      const archivePath = path.join(recoveryPaths.openclawDir, "faye-archives", `factory-reset-${stamp}-${process.pid}`);
+
+      deps.events.publish("system_factory_reset_requested", {
+        reason: requestedReason
+      });
+
+      const sessionResult = await endActiveSessionForRecovery(requestedReason);
+      const archivedPaths = await archiveDiagnostics(archivePath);
+      const wipedPaths = await wipeFactoryResetTargets();
+
+      const listener = await deps.services.stopListener();
+      const bridge = await deps.services.stopBridge();
+      const dashboard = await deps.services.stopDashboard();
+
+      const errors: string[] = [];
+      if (listener.code !== 0) {
+        errors.push("listener_stop_failed");
+      }
+      if (bridge.code !== 0) {
+        errors.push("bridge_stop_failed");
+      }
+      if (dashboard.code !== 0) {
+        errors.push("dashboard_stop_failed");
+      }
+
+      const result: SystemRecoveryResult = {
+        schemaVersion: 1,
+        action: "factory-reset",
+        requestedAt,
+        completedAt: new Date().toISOString(),
+        confirmationMatched: true,
+        endedSessionId: sessionResult.endedSessionId,
+        stopRequestWritten: sessionResult.stopRequestWritten,
+        dashboardKeptRunning: false,
+        archivePath,
+        clearedRuntimeFiles: [],
+        wipedPaths,
+        stoppedServices: {
+          listener,
+          bridge,
+          dashboard
+        },
+        notes: [`archivedPaths=${archivedPaths.length}`],
+        errors
+      };
+
+      deps.events.publish("system_factory_reset_completed", {
+        ok: errors.length === 0,
+        archivePath,
+        wipedPaths: wipedPaths.length,
+        errors
+      });
+
+      res.status(errors.length === 0 ? 200 : 500).json({
+        ok: errors.length === 0,
+        result
+      });
+    } catch (error) {
       routeError(deps.logger, res, error);
     }
   });

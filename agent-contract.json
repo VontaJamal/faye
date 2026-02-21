@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "project": "faye",
+  "intent": "OpenClaw second-install voice orchestration with local-first recovery",
+  "dashboard": {
+    "url": "http://127.0.0.1:4587",
+    "openCommands": [
+      "faye open",
+      "faye-open"
+    ]
+  },
+  "commands": {
+    "status": [
+      "faye status",
+      "faye-status"
+    ],
+    "setup": [
+      "faye setup",
+      "faye-setup"
+    ],
+    "firstSuccess": [
+      "faye first-success --json",
+      "faye-first-success --json"
+    ],
+    "panicStop": {
+      "confirmation": "PANIC STOP",
+      "commands": [
+        "faye panic --confirm \"PANIC STOP\"",
+        "faye-panic --confirm \"PANIC STOP\""
+      ]
+    },
+    "factoryReset": {
+      "confirmation": "FACTORY RESET",
+      "commands": [
+        "faye reset --confirm \"FACTORY RESET\"",
+        "faye-reset --confirm \"FACTORY RESET\""
+      ]
+    }
+  },
+  "api": {
+    "localOnly": true,
+    "routes": [
+      {
+        "method": "POST",
+        "path": "/v1/system/panic-stop",
+        "body": {
+          "confirmation": "PANIC STOP",
+          "reason": "optional_reason"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/system/factory-reset",
+        "body": {
+          "confirmation": "FACTORY RESET",
+          "reason": "optional_reason"
+        }
+      }
+    ],
+    "events": [
+      "system_panic_stop_requested",
+      "system_panic_stop_completed",
+      "system_factory_reset_requested",
+      "system_factory_reset_completed"
+    ]
+  },
+  "reports": {
+    "installAttempts": ".faye/reports/install-attempt-*.json",
+    "uiKpi": ".faye/reports/ui-kpi.json"
+  }
+}

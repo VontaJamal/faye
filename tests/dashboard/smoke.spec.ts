@@ -6,6 +6,8 @@ interface MockState {
   bridgeRestarts: number;
   speakTests: number;
   conversationEnds: number;
+  panicStops: number;
+  factoryResets: number;
   setupPayloads: Array<Record<string, unknown>>;
   conversationEnded: boolean;
   onboarding: {
@@ -30,6 +32,8 @@ function initialState(): MockState {
     bridgeRestarts: 0,
     speakTests: 0,
     conversationEnds: 0,
+    panicStops: 0,
+    factoryResets: 0,
     setupPayloads: [],
     conversationEnded: false,
     onboarding: {
@@ -340,6 +344,63 @@ async function installDashboardApiMocks(page: Page): Promise<MockState> {
     });
   });
 
+  await page.route("**/v1/system/panic-stop", async (route) => {
+    state.panicStops += 1;
+    state.conversationEnded = true;
+    await json(route, {
+      ok: true,
+      result: {
+        schemaVersion: 1,
+        action: "panic-stop",
+        requestedAt: "2026-02-21T00:06:00.000Z",
+        completedAt: "2026-02-21T00:06:01.000Z",
+        confirmationMatched: true,
+        endedSessionId: "session-1",
+        stopRequestWritten: true,
+        dashboardKeptRunning: true,
+        archivePath: null,
+        clearedRuntimeFiles: ["conversation-stop-request.json"],
+        wipedPaths: [],
+        stoppedServices: {
+          listener: { code: 0, stdout: "listener stopped", stderr: "" },
+          bridge: { code: 0, stdout: "bridge stopped", stderr: "" }
+        },
+        notes: [],
+        errors: []
+      }
+    });
+  });
+
+  await page.route("**/v1/system/factory-reset", async (route) => {
+    state.factoryResets += 1;
+    await json(route, {
+      ok: true,
+      result: {
+        schemaVersion: 1,
+        action: "factory-reset",
+        requestedAt: "2026-02-21T00:07:00.000Z",
+        completedAt: "2026-02-21T00:07:02.000Z",
+        confirmationMatched: true,
+        endedSessionId: "session-1",
+        stopRequestWritten: true,
+        dashboardKeptRunning: false,
+        archivePath: "/tmp/faye-reset-archive",
+        clearedRuntimeFiles: [],
+        wipedPaths: [
+          "~/.openclaw/faye-runtime-config.json",
+          "~/.openclaw/faye-voice-config.json"
+        ],
+        stoppedServices: {
+          listener: { code: 0, stdout: "listener stopped", stderr: "" },
+          bridge: { code: 0, stdout: "bridge stopped", stderr: "" },
+          dashboard: { code: 0, stdout: "dashboard stopped", stderr: "" }
+        },
+        notes: [],
+        errors: []
+      }
+    });
+  });
+
   await page.route("**/v1/conversation/*/context**", async (route) => {
     await json(route, {
       context: {
@@ -455,6 +516,48 @@ test("quick actions call restart endpoints and update status", async ({ page }) 
   expect(state.bridgeRestarts).toBe(1);
 });
 
+test("panic controls are visible with plain-language safety copy", async ({ page }) => {
+  await installDashboardApiMocks(page);
+  await page.goto("/");
+
+  await expect(page.locator("#recovery-title")).toContainText("Recovery & Panic");
+  await expect(page.locator("#panic-stop-button")).toContainText("Panic Stop");
+  await expect(page.locator("#factory-reset-button")).toContainText("Factory Reset");
+  await expect(page.locator("section:has(#recovery-title)")).toContainText("Type PANIC STOP");
+  await expect(page.locator("section:has(#recovery-title)")).toContainText("Type FACTORY RESET");
+});
+
+test("panic action is blocked without typed confirmation", async ({ page }) => {
+  const state = await installDashboardApiMocks(page);
+  await page.goto("/");
+
+  await page.click("#panic-stop-button");
+  await expect(page.locator("#recovery-status")).toContainText("Type PANIC STOP exactly");
+  expect(state.panicStops).toBe(0);
+});
+
+test("panic stop succeeds and keeps dashboard usable", async ({ page }) => {
+  const state = await installDashboardApiMocks(page);
+  await page.goto("/");
+
+  await page.fill("#panic-confirmation", "PANIC STOP");
+  await page.click("#panic-stop-button");
+  await expect(page.locator("#recovery-status")).toContainText("Panic Stop completed");
+  await page.click("#refresh-health");
+  await expect(page.locator("#setup-status")).toContainText("Status refreshed");
+  expect(state.panicStops).toBe(1);
+});
+
+test("factory reset flow returns restart-from-zero guidance", async ({ page }) => {
+  const state = await installDashboardApiMocks(page);
+  await page.goto("/");
+
+  await page.fill("#factory-reset-confirmation", "FACTORY RESET");
+  await page.click("#factory-reset-button");
+  await expect(page.locator("#recovery-status")).toContainText("Run install again and reopen the dashboard");
+  expect(state.factoryResets).toBe(1);
+});
+
 test("voice test success advances checklist to complete", async ({ page }) => {
   const state = await installDashboardApiMocks(page);
   state.onboarding.checklist.items = state.onboarding.checklist.items.map((item) =>
@@ -480,7 +583,7 @@ test("conversation end button terminates active session", async ({ page }) => {
   await page.click("#conversation-end");
   await expect(page.locator("#setup-status")).toContainText("Force stop requested");
   await expect(page.locator("#conversation-state")).toContainText("Status: Ended");
-  await expect(page.locator("#conversation-badges")).toContainText("End Reason: external_stop");
+  await expect(page.locator("#conversation-badges")).toContainText("End Reason: External Stop");
 
   expect(state.conversationEnds).toBe(1);
 });

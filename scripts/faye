@@ -11,6 +11,11 @@ ensure_build() {
   fi
 }
 
+invoked_name="$(basename "$0")"
+if [[ "$invoked_name" == faye-* && "$invoked_name" != "faye" && "$#" -eq 0 ]]; then
+  set -- "${invoked_name#faye-}"
+fi
+
 command_name="${1:-help}"
 extra_args=()
 

@@ -6,9 +6,9 @@ Use this page when setup or voice flow is not working.
 
 ```bash
 ./scripts/preflight.sh
-./scripts/listener-control.sh restart
+faye status
+faye panic --confirm "PANIC STOP"
 ./scripts/dashboard-control.sh restart
-./scripts/telegram-bridge-control.sh restart
 ./scripts/faye doctor
 ./scripts/faye first-success --json
 ```
@@ -16,6 +16,15 @@ Use this page when setup or voice flow is not working.
 If `doctor` returns `"ok": true`, try your wake flow again.
 If `first-success` returns `"ok": false`, attach the generated `.faye/reports/install-attempt-*.json` report when filing an issue.
 If dashboard checklist is below `4/4`, use the failing checklist item as your next fix target.
+
+If you need a true clean start:
+
+```bash
+faye reset --confirm "FACTORY RESET"
+./scripts/install.sh
+faye setup
+faye open
+```
 
 ## Dashboard Checklist Recovery
 
@@ -75,6 +84,12 @@ Fix:
 
 Expected status:
 - `dashboard: running`
+
+Shortcut:
+
+```bash
+faye open
+```
 
 ## Wake Word Detected But No Follow-up
 
