@@ -54,6 +54,8 @@ test("conversation manager tracks multi-turn user and assistant flow", () => {
   assert.equal(session?.totalTurns, 2);
   assert.equal(session?.retainedTurns, 2);
   assert.equal(session?.turnLimit, 8);
+  assert.equal(typeof session?.lastTurnAt, "string");
+  assert.equal(session?.stopRequested, false);
   assert.equal(session?.turns[1]?.assistantText, "Docs opened");
   assert.equal(session?.turns[1]?.assistantStatus, "ok");
 });
@@ -193,4 +195,53 @@ test("conversation manager supports manual termination", () => {
   assert.equal(ended?.state, "ended");
   assert.equal(ended?.endReason, "dashboard_manual_end");
   assert.equal(snapshot.endReasons.dashboard_manual_end, 1);
+});
+
+test("conversation manager exposes normalized role context with action outcomes", () => {
+  const events = new EventHub();
+  let now = 40_000;
+  const manager = new ConversationSessionManager({
+    events,
+    logger: makeLogger(),
+    nowMsFn: () => now,
+    ttlMs: 60_000
+  });
+
+  events.publish("wake_detected", { session_id: "s-context-1" });
+  now += 5;
+  events.publish("conversation_turn_started", { session_id: "s-context-1", turn: 1 });
+  now += 5;
+  events.publish("message_transcribed", { session_id: "s-context-1", turn: 1, text: "Check health" });
+  now += 5;
+  events.publish("bridge_action_requested", { session_id: "s-context-1", action: "listener_restart", confirm: false });
+  now += 5;
+  events.publish("bridge_action_blocked", {
+    session_id: "s-context-1",
+    action: "listener_restart",
+    reason: "confirm_required"
+  });
+  now += 5;
+  events.publish("bridge_speak_received", { session_id: "s-context-1", turn: 1, text: "Please confirm restart." });
+  now += 5;
+  events.publish("bridge_spoken", { session_id: "s-context-1", turn: 1, status: "ok" });
+  now += 5;
+  events.publish("conversation_turn_completed", { session_id: "s-context-1", turn: 1, wait_result: "completed" });
+  now += 5;
+  events.publish("conversation_ended", { session_id: "s-context-1", reason: "external_stop" });
+
+  const context = manager.getContext("s-context-1", {
+    limit: 8,
+    includePending: false
+  });
+  const active = manager.getActiveSessionSnapshot();
+  manager.stop();
+
+  assert.equal(active, null);
+  assert.equal(context?.sessionId, "s-context-1");
+  assert.equal(context?.state, "ended");
+  assert.equal(context?.stopRequested, true);
+  assert.equal(context?.turnProgress.current, 1);
+  assert.equal(context?.messages.some((item) => item.role === "user" && item.text === "Check health"), true);
+  assert.equal(context?.messages.some((item) => item.status === "needs_confirm" && item.action === "listener_restart"), true);
+  assert.equal(context?.messages.some((item) => item.role === "assistant" && item.status === "ok"), true);
 });

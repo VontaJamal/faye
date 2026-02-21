@@ -12,7 +12,12 @@ import type { EventHub } from "./events";
 import { ElevenLabsClient } from "./elevenlabs";
 import type { Logger } from "./logger";
 import { MetricsCollector, metricsSnapshotToPrometheus } from "./metrics";
-import { DASHBOARD_PUBLIC_DIR, DEFAULT_ELEVENLABS_KEY_PATH, DEFAULT_TELEGRAM_TOKEN_PATH } from "./paths";
+import {
+  CONVERSATION_STOP_REQUEST_PATH,
+  DASHBOARD_PUBLIC_DIR,
+  DEFAULT_ELEVENLABS_KEY_PATH,
+  DEFAULT_TELEGRAM_TOKEN_PATH
+} from "./paths";
 import { RoundTripCoordinator } from "./roundTripCoordinator";
 import { ServiceControl } from "./service-control";
 import type { ConfigStore } from "./store";
@@ -27,7 +32,12 @@ import {
   type VoiceProfile
 } from "./types";
 import { UxKpiTracker } from "./ux-kpi";
-import { writeSecret } from "./utils";
+import {
+  clearConversationStopRequest,
+  readConversationStopRequest,
+  writeConversationStopRequest,
+  writeSecret
+} from "./utils";
 
 interface ApiDependencies {
   store: ConfigStore;
@@ -36,6 +46,7 @@ interface ApiDependencies {
   elevenLabs: ElevenLabsClient;
   services: ServiceControl;
   uxKpi?: UxKpiTracker;
+  conversationStopRequestPath?: string;
 }
 
 function readPositiveEnvInt(name: string): number | undefined {
@@ -209,6 +220,7 @@ export function createApiServer(deps: ApiDependencies): express.Express {
     }
   });
   const uxKpi = deps.uxKpi ?? new UxKpiTracker();
+  const stopRequestPath = deps.conversationStopRequestPath ?? CONVERSATION_STOP_REQUEST_PATH;
 
   const recordUxKpi = async (operation: string, callback: () => Promise<void>): Promise<void> => {
     try {
@@ -241,6 +253,30 @@ export function createApiServer(deps: ApiDependencies): express.Express {
     return normalized.length > 0 ? normalized : fallback;
   };
 
+  const parseContextLimit = (value: unknown): number => {
+    const raw = Array.isArray(value) ? value[0] : value;
+    if (typeof raw !== "string" || !/^\d+$/.test(raw)) {
+      return 8;
+    }
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed)) {
+      return 8;
+    }
+    return Math.max(1, Math.min(16, parsed));
+  };
+
+  const parseIncludePending = (value: unknown): boolean => {
+    const raw = Array.isArray(value) ? value[0] : value;
+    if (typeof raw !== "string") {
+      return true;
+    }
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "0" || normalized === "false" || normalized === "no") {
+      return false;
+    }
+    return true;
+  };
+
   const speakWithProfile = async (text: string, profileId?: string): Promise<{ profileId: string }> => {
     const config = deps.store.getConfig();
     const selectedId = profileId ?? config.activeProfileId;
@@ -267,6 +303,25 @@ export function createApiServer(deps: ApiDependencies): express.Express {
       const bridge = await deps.services.bridgeStatus();
       const bridgeRuntime = await readBridgeRuntimeStatus();
       const activeProfile = deps.store.getActiveProfile();
+      const conversationSnapshot = conversation.getSnapshot();
+      const activeConversation = conversation.getActiveSessionSnapshot();
+      const stopRequest = await readConversationStopRequest(stopRequestPath).catch((error) => {
+        deps.logger.warn("CONVERSATION_STOP_READ_FAILED", "Failed to read conversation stop request", {
+          message: error instanceof Error ? error.message : String(error)
+        });
+        return null;
+      });
+      const stopRequested =
+        Boolean(stopRequest) &&
+        Boolean(activeConversation) &&
+        stopRequest?.sessionId.trim() === activeConversation?.sessionId;
+      if (stopRequest && !stopRequested) {
+        await clearConversationStopRequest(stopRequestPath).catch((error) => {
+          deps.logger.warn("CONVERSATION_STOP_CLEAR_FAILED", "Failed to clear stale conversation stop request", {
+            message: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }
       const uxReport = await uxKpi.getReport().catch((error) => {
         deps.logger.warn("UX_KPI_READ_FAILED", "Failed to read UX KPI report", {
           message: error instanceof Error ? error.message : String(error)
@@ -285,7 +340,14 @@ export function createApiServer(deps: ApiDependencies): express.Express {
         bridgeRuntime,
         roundTrip: roundTrip.getSnapshot(),
         metrics: metrics.getSnapshot(),
-        conversation: conversation.getSnapshot(),
+        conversation: {
+          ...conversationSnapshot,
+          activeSessionId: activeConversation?.sessionId ?? null,
+          activeTurn: activeConversation?.totalTurns ?? null,
+          lastTurnAt: activeConversation?.lastTurnAt ?? null,
+          lastEndReason: conversationSnapshot.lastEnded?.reason ?? null,
+          stopRequested
+        },
         onboarding: onboardingSummary({
           doctor,
           listener,
@@ -314,6 +376,39 @@ export function createApiServer(deps: ApiDependencies): express.Express {
     }
   });
 
+  app.get("/v1/conversation/active", (_req, res) => {
+    try {
+      const session = conversation.getActiveSessionSnapshot();
+      res.json({ session });
+    } catch (error) {
+      routeError(deps.logger, res, error);
+    }
+  });
+
+  app.get("/v1/conversation/:sessionId/context", (req, res) => {
+    try {
+      const sessionId = req.params.sessionId.trim();
+      if (!sessionId) {
+        res.status(400).json({ error: "E_CONVERSATION_ID_REQUIRED" });
+        return;
+      }
+
+      const context = conversation.getContext(sessionId, {
+        limit: parseContextLimit(req.query.limit),
+        includePending: parseIncludePending(req.query.includePending)
+      });
+
+      if (!context) {
+        res.status(404).json({ error: "E_CONVERSATION_NOT_FOUND" });
+        return;
+      }
+
+      res.json({ context });
+    } catch (error) {
+      routeError(deps.logger, res, error);
+    }
+  });
+
   app.get("/v1/conversation/:sessionId", (req, res) => {
     try {
       const sessionId = req.params.sessionId.trim();
@@ -334,7 +429,7 @@ export function createApiServer(deps: ApiDependencies): express.Express {
     }
   });
 
-  app.post("/v1/conversation/:sessionId/end", (req, res) => {
+  app.post("/v1/conversation/:sessionId/end", async (req, res) => {
     try {
       const sessionId = req.params.sessionId.trim();
       if (!sessionId) {
@@ -342,19 +437,27 @@ export function createApiServer(deps: ApiDependencies): express.Express {
         return;
       }
 
-      const reason = normalizeReason((req.body ?? {})["reason"], "manual_terminated");
-      const session = conversation.endSession(sessionId, reason);
+      const requestedReason = normalizeReason((req.body ?? {})["reason"], "manual_terminated");
+      const endReason = "external_stop";
+      const session = conversation.endSession(sessionId, endReason);
       if (!session) {
         res.status(404).json({ error: "E_CONVERSATION_NOT_FOUND" });
         return;
       }
 
-      deps.events.publish("conversation_ended", {
-        session_id: sessionId,
-        reason
+      await writeConversationStopRequest(stopRequestPath, {
+        sessionId,
+        reason: requestedReason,
+        requestedAt: new Date().toISOString()
       });
 
-      res.json({ session });
+      deps.events.publish("conversation_ended", {
+        session_id: sessionId,
+        reason: endReason,
+        requested_reason: requestedReason
+      });
+
+      res.json({ session, endReason, requestedReason });
     } catch (error) {
       routeError(deps.logger, res, error);
     }

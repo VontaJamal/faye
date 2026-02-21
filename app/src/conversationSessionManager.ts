@@ -1,6 +1,12 @@
 import type { AppEvent, EventHub } from "./events";
 import type { Logger } from "./logger";
-import type { ConversationTurnPolicy } from "./types";
+import type {
+  BridgeActionName,
+  ConversationContext,
+  ConversationContextMessage,
+  ConversationMessageStatus,
+  ConversationTurnPolicy
+} from "./types";
 
 type SpokenStatus = "ok" | "error" | "duplicate";
 type SessionState = "awaiting_user" | "awaiting_assistant" | "agent_responding" | "ended";
@@ -14,6 +20,16 @@ interface ConversationTurnRecord {
   assistantStatus: SpokenStatus | "pending" | null;
 }
 
+interface ContextMessageRecord {
+  role: "user" | "assistant" | "system";
+  text: string;
+  atMs: number;
+  turn?: number;
+  status?: ConversationMessageStatus;
+  action?: BridgeActionName;
+  code?: string;
+}
+
 interface SessionRecord {
   id: string;
   state: SessionState;
@@ -24,6 +40,9 @@ interface SessionRecord {
   turnLimit: number;
   extensionsUsed: number;
   turns: ConversationTurnRecord[];
+  contextMessages: ContextMessageRecord[];
+  lastTurnAtMs: number | null;
+  stopRequested: boolean;
   endReason?: string;
 }
 
@@ -54,6 +73,8 @@ export interface ConversationSessionSnapshot {
   retainedTurns: number;
   turnLimit: number;
   extensionsUsed: number;
+  lastTurnAt: string | null;
+  stopRequested: boolean;
   turns: ConversationTurnSnapshot[];
 }
 
@@ -78,6 +99,11 @@ export interface ConversationSnapshot {
   sessions: ConversationSessionSnapshot[];
 }
 
+interface ConversationContextOptions {
+  limit?: number;
+  includePending?: boolean;
+}
+
 interface ConversationSessionManagerDeps {
   events: EventHub;
   logger: Logger;
@@ -91,6 +117,9 @@ interface ConversationSessionManagerDeps {
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_TURNS_PER_SESSION = 16;
 const DEFAULT_MAX_SESSIONS = 24;
+const DEFAULT_MAX_CONTEXT_MESSAGES = 160;
+const DEFAULT_CONTEXT_LIMIT = 8;
+const MAX_CONTEXT_LIMIT = 16;
 const DEFAULT_TURN_POLICY: ConversationTurnPolicy = {
   baseTurns: 8,
   extendBy: 4,
@@ -188,11 +217,68 @@ function clampTurnPolicy(input: Partial<ConversationTurnPolicy> | undefined): Co
   return { baseTurns, extendBy, hardCap };
 }
 
+function toBridgeAction(value: unknown): BridgeActionName | null {
+  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (
+    text === "health_summary" ||
+    text === "voice_test" ||
+    text === "listener_restart" ||
+    text === "bridge_restart"
+  ) {
+    return text;
+  }
+  return null;
+}
+
+function toBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "yes" || normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "no" || normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+  return null;
+}
+
+function toActionCode(payload: Record<string, unknown>): string | undefined {
+  const fromCode = normalizeReason(payload.code);
+  if (fromCode) {
+    return fromCode;
+  }
+  return normalizeReason(payload.reason);
+}
+
+function toActionExecutionStatus(payload: Record<string, unknown>): "ok" | "error" | null {
+  const status = payload.status;
+  if (status === "ok" || status === "error") {
+    return status;
+  }
+  return null;
+}
+
+function toWaitResult(payload: Record<string, unknown>): string | undefined {
+  return normalizeReason(payload.wait_result ?? payload.waitResult);
+}
+
+function clampContextLimit(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_CONTEXT_LIMIT;
+  }
+  return Math.max(1, Math.min(MAX_CONTEXT_LIMIT, Math.floor(value)));
+}
+
 export class ConversationSessionManager {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly ttlMs: number;
   private readonly maxTurnsPerSession: number;
   private readonly maxSessions: number;
+  private readonly maxContextMessagesPerSession: number;
   private readonly turnPolicy: ConversationTurnPolicy;
   private readonly nowMsFn: () => number;
   private readonly unsubscribe: () => void;
@@ -213,6 +299,10 @@ export class ConversationSessionManager {
     this.ttlMs = Math.max(5_000, deps.ttlMs ?? DEFAULT_TTL_MS);
     this.maxTurnsPerSession = Math.max(1, deps.maxTurnsPerSession ?? DEFAULT_MAX_TURNS_PER_SESSION);
     this.maxSessions = Math.max(4, deps.maxSessions ?? DEFAULT_MAX_SESSIONS);
+    this.maxContextMessagesPerSession = Math.max(
+      MAX_CONTEXT_LIMIT,
+      Math.max(DEFAULT_MAX_CONTEXT_MESSAGES, this.maxTurnsPerSession * 8)
+    );
     this.nowMsFn = deps.nowMsFn ?? (() => Date.now());
     this.unsubscribe = deps.events.subscribe((event) => {
       this.handleEvent(event);
@@ -228,7 +318,7 @@ export class ConversationSessionManager {
     const now = this.nowMsFn();
     this.pruneExpired(now);
 
-    const ordered = [...this.sessions.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+    const ordered = this.orderedSessions();
 
     return {
       policy: {
@@ -256,6 +346,51 @@ export class ConversationSessionManager {
     return this.toSessionSnapshot(session, now);
   }
 
+  getActiveSessionSnapshot(): ConversationSessionSnapshot | null {
+    const now = this.nowMsFn();
+    this.pruneExpired(now);
+    const active = this.orderedSessions().find((session) => session.state !== "ended");
+    if (!active) {
+      return null;
+    }
+    return this.toSessionSnapshot(active, now);
+  }
+
+  getContext(sessionId: string, options?: ConversationContextOptions): ConversationContext | null {
+    const now = this.nowMsFn();
+    this.pruneExpired(now);
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    const includePending = options?.includePending ?? true;
+    const limit = clampContextLimit(options?.limit);
+    let messages = session.contextMessages;
+    if (!includePending) {
+      messages = messages.filter((item) => item.status !== "pending");
+    }
+
+    const selected = messages.slice(-limit).map((item) => this.toContextMessage(item));
+
+    return {
+      sessionId: session.id,
+      state: session.state,
+      expiresAt: formatIso(session.expiresAtMs),
+      expiresInMs: Math.max(0, session.expiresAtMs - now),
+      turnPolicy: { ...this.turnPolicy },
+      turnProgress: {
+        current: session.totalTurns,
+        limit: session.turnLimit,
+        remaining: Math.max(0, session.turnLimit - session.totalTurns)
+      },
+      endReason: session.endReason,
+      lastTurnAt: typeof session.lastTurnAtMs === "number" ? formatIso(session.lastTurnAtMs) : null,
+      stopRequested: session.stopRequested,
+      messages: selected
+    };
+  }
+
   endSession(sessionId: string, reason: string): ConversationSessionSnapshot | null {
     const now = this.nowMsFn();
     this.pruneExpired(now);
@@ -264,7 +399,11 @@ export class ConversationSessionManager {
       return null;
     }
 
-    this.markSessionEnded(session, now, normalizeReason(reason) ?? "manual_terminated");
+    const resolvedReason = normalizeReason(reason) ?? "manual_terminated";
+    if (resolvedReason === "external_stop") {
+      session.stopRequested = true;
+    }
+    this.markSessionEnded(session, now, resolvedReason);
     return this.toSessionSnapshot(session, now);
   }
 
@@ -275,7 +414,12 @@ export class ConversationSessionManager {
     const sessionId = toSessionId(payload);
 
     if (event.type === "wake_detected" && sessionId) {
-      this.openSession(sessionId, now);
+      const session = this.openSession(sessionId, now);
+      this.pushContextMessage(session, {
+        role: "system",
+        text: "Wake detected",
+        atMs: now
+      });
       return;
     }
 
@@ -302,6 +446,43 @@ export class ConversationSessionManager {
       return;
     }
 
+    if (event.type === "bridge_action_requested" && sessionId) {
+      this.recordBridgeActionRequested(sessionId, payload, now);
+      return;
+    }
+
+    if (event.type === "bridge_action_blocked" && sessionId) {
+      this.recordBridgeActionBlocked(sessionId, payload, now);
+      return;
+    }
+
+    if (event.type === "bridge_action_executed" && sessionId) {
+      this.recordBridgeActionExecuted(sessionId, payload, now);
+      return;
+    }
+
+    if (event.type === "conversation_turn_started" && sessionId) {
+      this.recordTurnLifecycle(sessionId, payload, now, "started");
+      return;
+    }
+
+    if (event.type === "conversation_turn_completed" && sessionId) {
+      this.recordTurnLifecycle(sessionId, payload, now, "completed");
+      return;
+    }
+
+    if (event.type === "conversation_ended" && sessionId) {
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        const reason = toReason(payload) ?? "manual_terminated";
+        if (reason === "external_stop") {
+          session.stopRequested = true;
+        }
+        this.markSessionEnded(session, now, reason);
+      }
+      return;
+    }
+
     if (event.type === "listener_status" && sessionId) {
       const status = toListenerStatus(payload);
       if (!status) {
@@ -311,33 +492,60 @@ export class ConversationSessionManager {
       if (status === "conversation_loop_started" || status === "conversation_started") {
         const session = this.openSession(sessionId, now);
         this.applyListenerTurnLimit(session, payload);
+        this.pushContextMessage(session, {
+          role: "system",
+          text: "Conversation loop started",
+          atMs: now,
+          code: status
+        });
         return;
       }
 
       if (status === "conversation_loop_extended") {
         const session = this.ensureSession(sessionId, now);
         this.applyListenerTurnLimit(session, payload);
+        this.pushContextMessage(session, {
+          role: "system",
+          text: `Conversation turn limit extended to ${session.turnLimit}`,
+          atMs: now,
+          code: status
+        });
         return;
       }
 
       if (status === "conversation_loop_ended" || status === "conversation_ended") {
         const session = this.sessions.get(sessionId);
         if (session) {
-          this.markSessionEnded(session, now, toReason(payload) ?? "listener_ended");
+          const reason = toReason(payload) ?? "listener_ended";
+          if (reason === "external_stop") {
+            session.stopRequested = true;
+          }
+          this.markSessionEnded(session, now, reason);
         }
       }
     }
   }
 
+  private orderedSessions(): SessionRecord[] {
+    return [...this.sessions.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+  }
+
   private openSession(sessionId: string, now: number): SessionRecord {
     const existing = this.sessions.get(sessionId);
     if (existing) {
+      if (existing.state === "ended") {
+        existing.totalTurns = 0;
+        existing.turns = [];
+        existing.contextMessages = [];
+        existing.lastTurnAtMs = null;
+      }
       existing.state = "awaiting_user";
       existing.endReason = undefined;
       existing.updatedAtMs = now;
       existing.expiresAtMs = now + this.ttlMs;
       existing.turnLimit = this.turnPolicy.baseTurns;
       existing.extensionsUsed = 0;
+      existing.stopRequested = false;
       return existing;
     }
 
@@ -350,7 +558,10 @@ export class ConversationSessionManager {
       totalTurns: 0,
       turnLimit: this.turnPolicy.baseTurns,
       extensionsUsed: 0,
-      turns: []
+      turns: [],
+      contextMessages: [],
+      lastTurnAtMs: null,
+      stopRequested: false
     };
     this.sessions.set(sessionId, created);
     this.totals.sessionsOpened += 1;
@@ -385,6 +596,7 @@ export class ConversationSessionManager {
     session.state = "awaiting_assistant";
     session.updatedAtMs = now;
     session.expiresAtMs = now + this.ttlMs;
+    session.lastTurnAtMs = now;
 
     session.turns.push({
       turn: nextTurn,
@@ -393,6 +605,13 @@ export class ConversationSessionManager {
       assistantText: null,
       assistantAtMs: null,
       assistantStatus: "pending"
+    });
+
+    this.pushContextMessage(session, {
+      role: "user",
+      text,
+      atMs: now,
+      turn: nextTurn
     });
 
     this.totals.userTurns += 1;
@@ -412,6 +631,13 @@ export class ConversationSessionManager {
     if (text) {
       target.assistantText = text;
       target.assistantAtMs = now;
+      this.pushContextMessage(session, {
+        role: "assistant",
+        text,
+        atMs: now,
+        turn: target.turn,
+        status: "pending"
+      });
     }
     target.assistantStatus = "pending";
     this.trimTurns(session);
@@ -432,11 +658,107 @@ export class ConversationSessionManager {
       target.assistantAtMs = now;
     }
 
+    this.updateAssistantContextStatus(session, target.turn, status, now);
+
     session.state = "awaiting_user";
     session.updatedAtMs = now;
     session.expiresAtMs = now + this.ttlMs;
     this.totals.assistantResponses += 1;
     this.trimTurns(session);
+  }
+
+  private recordBridgeActionRequested(sessionId: string, payload: Record<string, unknown>, now: number): void {
+    const action = toBridgeAction(payload.action);
+    if (!action) {
+      return;
+    }
+
+    const session = this.ensureSession(sessionId, now);
+    const confirm = toBoolean(payload.confirm);
+    const code = toActionCode(payload);
+
+    this.pushContextMessage(session, {
+      role: "system",
+      text: `Action requested: ${action}`,
+      atMs: now,
+      status: "requested",
+      action,
+      code: typeof confirm === "boolean" ? `confirm_${confirm ? "yes" : "no"}` : code
+    });
+  }
+
+  private recordBridgeActionBlocked(sessionId: string, payload: Record<string, unknown>, now: number): void {
+    const action = toBridgeAction(payload.action);
+    if (!action) {
+      return;
+    }
+
+    const session = this.ensureSession(sessionId, now);
+    const code = toActionCode(payload) ?? "blocked";
+    const status: ConversationMessageStatus = code === "confirm_required" ? "needs_confirm" : "blocked";
+
+    this.pushContextMessage(session, {
+      role: "system",
+      text: status === "needs_confirm" ? `Action needs confirmation: ${action}` : `Action blocked: ${action}`,
+      atMs: now,
+      status,
+      action,
+      code
+    });
+  }
+
+  private recordBridgeActionExecuted(sessionId: string, payload: Record<string, unknown>, now: number): void {
+    const action = toBridgeAction(payload.action);
+    if (!action) {
+      return;
+    }
+
+    const session = this.ensureSession(sessionId, now);
+    const executionStatus = toActionExecutionStatus(payload) ?? "error";
+    const code = toActionCode(payload) ?? (executionStatus === "ok" ? "ok" : "execution_failed");
+
+    this.pushContextMessage(session, {
+      role: "system",
+      text: executionStatus === "ok" ? `Action executed: ${action}` : `Action failed: ${action}`,
+      atMs: now,
+      status: executionStatus === "ok" ? "executed" : "error",
+      action,
+      code
+    });
+  }
+
+  private recordTurnLifecycle(
+    sessionId: string,
+    payload: Record<string, unknown>,
+    now: number,
+    phase: "started" | "completed"
+  ): void {
+    const session = this.ensureSession(sessionId, now);
+    const turn = toTurn(payload) ?? undefined;
+
+    if (phase === "started") {
+      this.pushContextMessage(session, {
+        role: "system",
+        text: typeof turn === "number" ? `Turn ${turn} started` : "Turn started",
+        atMs: now,
+        turn,
+        code: "turn_started"
+      });
+      return;
+    }
+
+    const waitResult = toWaitResult(payload) ?? "unknown";
+    this.pushContextMessage(session, {
+      role: "system",
+      text: typeof turn === "number" ? `Turn ${turn} completed (${waitResult})` : `Turn completed (${waitResult})`,
+      atMs: now,
+      turn,
+      code: waitResult
+    });
+
+    if (waitResult === "external_stop") {
+      session.stopRequested = true;
+    }
   }
 
   private findAssistantTargetTurn(session: SessionRecord, turn: number | null): ConversationTurnRecord {
@@ -482,6 +804,31 @@ export class ConversationSessionManager {
     return created;
   }
 
+  private updateAssistantContextStatus(
+    session: SessionRecord,
+    turn: number,
+    status: SpokenStatus,
+    now: number
+  ): void {
+    const pending = [...session.contextMessages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.turn === turn && message.status === "pending");
+
+    if (pending) {
+      pending.status = status;
+      pending.atMs = now;
+      return;
+    }
+
+    this.pushContextMessage(session, {
+      role: "assistant",
+      text: "Assistant response",
+      atMs: now,
+      turn,
+      status
+    });
+  }
+
   private applyListenerTurnLimit(session: SessionRecord, payload: Record<string, unknown>): void {
     const limit = toTurnLimit(payload);
     if (limit === null) {
@@ -504,6 +851,17 @@ export class ConversationSessionManager {
     session.endReason = reason;
     session.updatedAtMs = now;
     session.expiresAtMs = now + this.ttlMs;
+    if (reason === "external_stop") {
+      session.stopRequested = true;
+    }
+
+    this.pushContextMessage(session, {
+      role: "system",
+      text: `Session ended: ${reason}`,
+      atMs: now,
+      code: reason
+    });
+
     this.lastEnded = {
       sessionId: session.id,
       at: formatIso(now),
@@ -534,6 +892,20 @@ export class ConversationSessionManager {
     while (session.turns.length > this.maxTurnsPerSession) {
       session.turns.shift();
     }
+  }
+
+  private pushContextMessage(session: SessionRecord, message: ContextMessageRecord): void {
+    session.contextMessages.push(message);
+    session.updatedAtMs = Math.max(session.updatedAtMs, message.atMs);
+    session.expiresAtMs = session.updatedAtMs + this.ttlMs;
+
+    while (session.contextMessages.length > this.maxContextMessagesPerSession) {
+      session.contextMessages.shift();
+    }
+  }
+
+  private recordEndReason(reason: string): void {
+    this.endReasonCounts.set(reason, (this.endReasonCounts.get(reason) ?? 0) + 1);
   }
 
   private enforceSessionCap(now: number): void {
@@ -569,8 +941,16 @@ export class ConversationSessionManager {
     }
   }
 
-  private recordEndReason(reason: string): void {
-    this.endReasonCounts.set(reason, (this.endReasonCounts.get(reason) ?? 0) + 1);
+  private toContextMessage(record: ContextMessageRecord): ConversationContextMessage {
+    return {
+      role: record.role,
+      text: record.text,
+      at: formatIso(record.atMs),
+      ...(typeof record.turn === "number" ? { turn: record.turn } : {}),
+      ...(record.status ? { status: record.status } : {}),
+      ...(record.action ? { action: record.action } : {}),
+      ...(record.code ? { code: record.code } : {})
+    };
   }
 
   private toSessionSnapshot(session: SessionRecord, now: number): ConversationSessionSnapshot {
@@ -586,6 +966,8 @@ export class ConversationSessionManager {
       retainedTurns: session.turns.length,
       turnLimit: session.turnLimit,
       extensionsUsed: session.extensionsUsed,
+      lastTurnAt: typeof session.lastTurnAtMs === "number" ? formatIso(session.lastTurnAtMs) : null,
+      stopRequested: session.stopRequested,
       turns: session.turns.map((turn) => ({
         turn: turn.turn,
         userText: turn.userText,

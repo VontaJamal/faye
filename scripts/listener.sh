@@ -7,6 +7,8 @@ RUNTIME_CONFIG="${FAYE_RUNTIME_CONFIG:-$HOME/.openclaw/faye-runtime-config.json}
 LOCAL_API_BASE_URL="http://127.0.0.1:4587"
 LOCAL_EVENT_TOKEN_FILE="$HOME/.openclaw/secrets/faye-local-event-token.txt"
 TMPDIR="$HOME/.openclaw/faye-voice/tmp"
+FAYE_STATE_DIR="$HOME/.openclaw/faye-voice"
+STOP_REQUEST_FILE="${FAYE_CONVERSATION_STOP_REQUEST_FILE:-$FAYE_STATE_DIR/conversation-stop-request.json}"
 LEGACY_CONVERSATION_MAX_TURNS="${FAYE_CONVERSATION_MAX_TURNS:-}"
 CONVERSATION_BASE_TURNS="${FAYE_CONVERSATION_BASE_TURNS:-${LEGACY_CONVERSATION_MAX_TURNS:-8}}"
 CONVERSATION_EXTEND_BY="${FAYE_CONVERSATION_EXTEND_BY:-4}"
@@ -14,6 +16,8 @@ CONVERSATION_HARD_CAP="${FAYE_CONVERSATION_HARD_CAP:-16}"
 CONVERSATION_RESPONSE_WAIT_SECONDS="${FAYE_CONVERSATION_RESPONSE_WAIT_SECONDS:-40}"
 mkdir -p "$TMPDIR"
 chmod 700 "$TMPDIR" || true
+mkdir -p "$FAYE_STATE_DIR"
+chmod 700 "$FAYE_STATE_DIR" || true
 
 log() {
   local code="$1"
@@ -188,6 +192,69 @@ print(f"s-{int(time.time())}-{secrets.token_hex(3)}")
 PY
 }
 
+consume_external_stop_request() {
+  local session_id="$1"
+  python3 - "$STOP_REQUEST_FILE" "$session_id" <<'PY'
+import json
+import os
+import re
+import sys
+
+path = sys.argv[1]
+target = sys.argv[2]
+
+def normalized(value):
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^a-z0-9_:-]+", "_", text)[:80]
+    return text or "external_stop"
+
+if not os.path.exists(path):
+    print("")
+    sys.exit(0)
+
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+except Exception:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    print("external_stop")
+    sys.exit(0)
+
+session_id = str(payload.get("sessionId", "")).strip()
+if session_id and session_id not in (target, "*", "active"):
+    print("")
+    sys.exit(0)
+
+_ = normalized(payload.get("reason"))
+try:
+    os.remove(path)
+except OSError:
+    pass
+
+print("external_stop")
+PY
+}
+
+emit_turn_started() {
+  local session_id="$1"
+  local turn="$2"
+  local session_json
+  session_json="$(json_escape "$session_id")"
+  post_local_event "conversation_turn_started" "{\"session_id\":${session_json},\"turn\":${turn}}"
+}
+
+emit_turn_completed() {
+  local session_id="$1"
+  local turn="$2"
+  local wait_result="$3"
+  local session_json
+  session_json="$(json_escape "$session_id")"
+  post_local_event "conversation_turn_completed" "{\"session_id\":${session_json},\"turn\":${turn},\"wait_result\":\"${wait_result}\"}"
+}
+
 wait_for_roundtrip_completion() {
   local session_id="$1"
   local timeout_seconds="$2"
@@ -318,6 +385,11 @@ while true; do
   loop_active=1
 
   while [[ "$loop_active" -eq 1 ]]; do
+    if [[ -n "$(consume_external_stop_request "$session_id")" ]]; then
+      loop_reason="external_stop"
+      break
+    fi
+
     if [[ "$turn" -ge "$current_turn_limit" ]]; then
       if [[ "$current_turn_limit" -lt "$CONVERSATION_HARD_CAP" ]]; then
         next_turn_limit=$((current_turn_limit + CONVERSATION_EXTEND_BY))
@@ -338,6 +410,8 @@ while true; do
     fi
 
     turn=$((turn + 1))
+    emit_turn_started "$session_id" "$turn"
+
     msg_clip="$TMPDIR/message-${session_id}-${turn}.wav"
     rec -q "$msg_clip" rate 16k channels 1 \
       silence 1 0.3 "$THRESHOLD" \
@@ -347,6 +421,7 @@ while true; do
 
     if [[ ! -s "$msg_clip" ]]; then
       rm -f "$msg_clip"
+      emit_turn_completed "$session_id" "$turn" "idle_no_audio"
       loop_reason="idle_timeout"
       break
     fi
@@ -354,6 +429,7 @@ while true; do
     size=$(stat -f%z "$msg_clip" 2>/dev/null || stat -c%s "$msg_clip" 2>/dev/null || echo 0)
     if [[ "$size" -lt 10000 ]]; then
       rm -f "$msg_clip"
+      emit_turn_completed "$session_id" "$turn" "idle_audio_too_small"
       loop_reason="idle_timeout"
       break
     fi
@@ -361,6 +437,7 @@ while true; do
     msg_text="$(transcribe_clip "$msg_clip")"
     rm -f "$msg_clip"
     if [[ -z "$msg_text" ]]; then
+      emit_turn_completed "$session_id" "$turn" "idle_no_transcript"
       loop_reason="idle_timeout"
       break
     fi
@@ -370,6 +447,7 @@ while true; do
     post_local_event "message_transcribed" "{\"text\":${escaped_msg},\"session_id\":${session_json},\"turn\":${turn}}"
 
     if [[ "$(is_explicit_stop "$msg_text")" == "1" ]]; then
+      emit_turn_completed "$session_id" "$turn" "explicit_user_stop"
       loop_reason="explicit_user_stop"
       break
     fi
@@ -377,13 +455,25 @@ while true; do
     send_telegram "#faye_voice session=${session_id} turn=${turn} text=${msg_text}"
     turns_sent=$((turns_sent + 1))
 
+    wait_result="completed"
     if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
       if ! wait_for_roundtrip_completion "$session_id" "$CONVERSATION_RESPONSE_WAIT_SECONDS"; then
         log "ROUNDTRIP_WAIT_TIMEOUT" "session=${session_id} turn=${turn}"
+        emit_turn_completed "$session_id" "$turn" "agent_timeout"
         loop_reason="agent_timeout"
         break
       fi
+    else
+      wait_result="sent_no_bridge"
     fi
+
+    if [[ -n "$(consume_external_stop_request "$session_id")" ]]; then
+      emit_turn_completed "$session_id" "$turn" "external_stop"
+      loop_reason="external_stop"
+      break
+    fi
+
+    emit_turn_completed "$session_id" "$turn" "$wait_result"
   done
 
   post_local_event "listener_status" "{\"status\":\"conversation_loop_ended\",\"session_id\":${session_json},\"turns\":${turns_sent},\"max_turns\":${current_turn_limit},\"reason\":\"${loop_reason}\"}"

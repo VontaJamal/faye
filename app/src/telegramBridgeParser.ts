@@ -5,6 +5,7 @@ type BridgeActionCommand = {
   name: BridgeActionName;
   sessionId?: string;
   confirm?: boolean;
+  nonce?: string;
 };
 
 export type BridgeCommand =
@@ -70,6 +71,17 @@ function toTurnValue(input: unknown): number | undefined {
   return undefined;
 }
 
+function toNonce(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!/^[A-Za-z0-9._:-]{1,64}$/.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 function extractTurn(payload: string): number | undefined {
   const match = payload.match(/\bturn=(\d{1,3})\b/i);
   return toTurnValue(match?.[1]);
@@ -121,7 +133,7 @@ function parseSpeakPayload(payload: string): { text: string; sessionId?: string;
   return { text: trimQuotes(raw), sessionId, turn };
 }
 
-function parseActionPayload(payload: string): { name: BridgeActionName; sessionId?: string; confirm?: boolean } | null {
+function parseActionPayload(payload: string): { name: BridgeActionName; sessionId?: string; confirm?: boolean; nonce?: string } | null {
   const raw = payload.trim();
   if (!raw) {
     return null;
@@ -142,10 +154,12 @@ function parseActionPayload(payload: string): { name: BridgeActionName; sessionI
             ? parsed.sessionId
             : undefined;
       const confirm = toBoolean(parsed.confirm);
+      const nonce = toNonce(parsed.nonce);
       return {
         name,
         sessionId,
-        ...(typeof confirm === "boolean" ? { confirm } : {})
+        ...(typeof confirm === "boolean" ? { confirm } : {}),
+        ...(nonce ? { nonce } : {})
       };
     } catch {
       return null;
@@ -162,11 +176,14 @@ function parseActionPayload(payload: string): { name: BridgeActionName; sessionI
   const sessionId = extractSessionId(raw);
   const confirmMatch = raw.match(/\bconfirm=([a-z0-9]+)/i);
   const confirm = toBoolean(confirmMatch?.[1]);
+  const nonceMatch = raw.match(/\bnonce=([A-Za-z0-9._:-]{1,64})\b/);
+  const nonce = toNonce(nonceMatch?.[1]);
 
   return {
     name,
     sessionId,
-    ...(typeof confirm === "boolean" ? { confirm } : {})
+    ...(typeof confirm === "boolean" ? { confirm } : {}),
+    ...(nonce ? { nonce } : {})
   };
 }
 
@@ -235,7 +252,8 @@ export function parseBridgeCommand(text: string): BridgeCommand | null {
       type: "action",
       name: parsed.name,
       sessionId: parsed.sessionId,
-      ...(typeof parsed.confirm === "boolean" ? { confirm: parsed.confirm } : {})
+      ...(typeof parsed.confirm === "boolean" ? { confirm: parsed.confirm } : {}),
+      ...(parsed.nonce ? { nonce: parsed.nonce } : {})
     };
   }
 

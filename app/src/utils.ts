@@ -4,6 +4,12 @@ import path from "node:path";
 
 import { UxKpiReportSchema, type InstallAttemptReport, type UxKpiReport } from "./types";
 
+export interface ConversationStopRequest {
+  sessionId: string;
+  reason: string;
+  requestedAt: string;
+}
+
 export async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -67,6 +73,43 @@ export async function readUxKpiReport(filePath: string): Promise<UxKpiReport | n
 export async function writeUxKpiReport(filePath: string, report: UxKpiReport): Promise<void> {
   const valid = UxKpiReportSchema.parse(report);
   await writeJsonAtomic(filePath, valid, 0o600);
+}
+
+export async function writeConversationStopRequest(
+  filePath: string,
+  request: ConversationStopRequest
+): Promise<void> {
+  await writeJsonAtomic(filePath, request, 0o600);
+}
+
+export async function readConversationStopRequest(filePath: string): Promise<ConversationStopRequest | null> {
+  if (!(await pathExists(filePath))) {
+    return null;
+  }
+
+  const parsed = await readJsonFile<unknown>(filePath);
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  const payload = parsed as Record<string, unknown>;
+  const sessionId = typeof payload.sessionId === "string" ? payload.sessionId.trim() : "";
+  const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+  const requestedAt = typeof payload.requestedAt === "string" ? payload.requestedAt.trim() : "";
+
+  if (!sessionId || !reason || !requestedAt) {
+    return null;
+  }
+
+  return {
+    sessionId,
+    reason,
+    requestedAt
+  };
+}
+
+export async function clearConversationStopRequest(filePath: string): Promise<void> {
+  await fs.rm(filePath, { force: true });
 }
 
 export async function readSecret(filePath: string): Promise<string> {

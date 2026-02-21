@@ -95,6 +95,8 @@ export const LocalIngestEventSchema = z.object({
     "message_transcribed",
     "listener_error",
     "listener_status",
+    "conversation_turn_started",
+    "conversation_turn_completed",
     "bridge_speak_received",
     "bridge_spoken",
     "bridge_action_requested",
@@ -111,10 +113,54 @@ export const BridgeActionNameSchema = z.enum([
   "bridge_restart"
 ]);
 
+export const BridgeActionNonceSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,64}$/);
+
 export const ConversationTurnPolicySchema = z.object({
   baseTurns: z.number().int().min(1).max(32),
   extendBy: z.number().int().min(1).max(16),
   hardCap: z.number().int().min(1).max(64)
+});
+
+export const ConversationMessageRoleSchema = z.enum(["user", "assistant", "system"]);
+
+export const ConversationMessageStatusSchema = z.enum([
+  "ok",
+  "error",
+  "duplicate",
+  "pending",
+  "requested",
+  "executed",
+  "blocked",
+  "needs_confirm"
+]);
+
+export const ConversationContextMessageSchema = z.object({
+  role: ConversationMessageRoleSchema,
+  text: z.string().max(1200),
+  at: z.string().datetime(),
+  turn: z.number().int().min(1).max(500).optional(),
+  status: ConversationMessageStatusSchema.optional(),
+  action: BridgeActionNameSchema.optional(),
+  code: z.string().min(1).max(80).optional()
+});
+
+export const ConversationTurnProgressSchema = z.object({
+  current: z.number().int().min(0).max(500),
+  limit: z.number().int().min(1).max(64),
+  remaining: z.number().int().min(0).max(500)
+});
+
+export const ConversationContextSchema = z.object({
+  sessionId: z.string().min(1).max(120),
+  state: z.enum(["awaiting_user", "awaiting_assistant", "agent_responding", "ended"]),
+  expiresAt: z.string().datetime(),
+  expiresInMs: z.number().int().min(0),
+  turnPolicy: ConversationTurnPolicySchema,
+  turnProgress: ConversationTurnProgressSchema,
+  endReason: z.string().max(80).optional(),
+  lastTurnAt: z.string().datetime().nullable(),
+  stopRequested: z.boolean(),
+  messages: z.array(ConversationContextMessageSchema).max(256)
 });
 
 export const InstallAttemptStepSchema = z.object({
@@ -178,7 +224,13 @@ export type SpeakTestInput = z.infer<typeof SpeakTestInputSchema>;
 export type SetupInput = z.infer<typeof SetupInputSchema>;
 export type LocalIngestEvent = z.infer<typeof LocalIngestEventSchema>;
 export type BridgeActionName = z.infer<typeof BridgeActionNameSchema>;
+export type BridgeActionNonce = z.infer<typeof BridgeActionNonceSchema>;
 export type ConversationTurnPolicy = z.infer<typeof ConversationTurnPolicySchema>;
+export type ConversationMessageRole = z.infer<typeof ConversationMessageRoleSchema>;
+export type ConversationMessageStatus = z.infer<typeof ConversationMessageStatusSchema>;
+export type ConversationContextMessage = z.infer<typeof ConversationContextMessageSchema>;
+export type ConversationTurnProgress = z.infer<typeof ConversationTurnProgressSchema>;
+export type ConversationContext = z.infer<typeof ConversationContextSchema>;
 export type InstallAttemptStep = z.infer<typeof InstallAttemptStepSchema>;
 export type InstallAttemptReport = z.infer<typeof InstallAttemptReportSchema>;
 export type UxKpiFailure = z.infer<typeof UxKpiFailureSchema>;
