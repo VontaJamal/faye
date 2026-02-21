@@ -92,6 +92,7 @@ export const SetupInputSchema = z.object({
 export const LocalIngestEventSchema = z.object({
   type: z.enum([
     "wake_detected",
+    "wake_variant_learned",
     "message_transcribed",
     "listener_error",
     "listener_status",

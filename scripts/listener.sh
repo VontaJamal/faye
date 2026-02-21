@@ -9,6 +9,7 @@ LOCAL_EVENT_TOKEN_FILE="$HOME/.openclaw/secrets/faye-local-event-token.txt"
 TMPDIR="$HOME/.openclaw/faye-voice/tmp"
 FAYE_STATE_DIR="$HOME/.openclaw/faye-voice"
 STOP_REQUEST_FILE="${FAYE_CONVERSATION_STOP_REQUEST_FILE:-$FAYE_STATE_DIR/conversation-stop-request.json}"
+LEARNED_VARIANTS_FILE="${FAYE_WAKE_LEARNED_VARIANTS_FILE:-$FAYE_STATE_DIR/wake-word-learned-variants.json}"
 LEGACY_CONVERSATION_MAX_TURNS="${FAYE_CONVERSATION_MAX_TURNS:-}"
 CONVERSATION_BASE_TURNS="${FAYE_CONVERSATION_BASE_TURNS:-${LEGACY_CONVERSATION_MAX_TURNS:-8}}"
 CONVERSATION_EXTEND_BY="${FAYE_CONVERSATION_EXTEND_BY:-4}"
@@ -44,12 +45,52 @@ PY
 }
 
 json_variants() {
-  python3 - "$CONFIG" <<'PY'
+  python3 - "$CONFIG" "$LEARNED_VARIANTS_FILE" <<'PY'
 import json
+import re
 import sys
-cfg = json.load(open(sys.argv[1]))
-variants = cfg.get("wake_word_variants") or [cfg.get("wake_word", "faye arise").lower()]
-print(json.dumps([v.lower() for v in variants if isinstance(v, str) and v.strip()]))
+
+cfg_path = sys.argv[1]
+learned_path = sys.argv[2]
+
+def normalize(phrase):
+    text = str(phrase or "").strip().lower()
+    text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+with open(cfg_path, "r", encoding="utf-8") as fh:
+    cfg = json.load(fh)
+
+source_variants = []
+configured = cfg.get("wake_word_variants")
+if isinstance(configured, list):
+    source_variants.extend(configured)
+
+wake_word = cfg.get("wake_word", "faye arise")
+source_variants.append(wake_word)
+
+try:
+    with open(learned_path, "r", encoding="utf-8") as fh:
+        learned = json.load(fh)
+        if isinstance(learned, list):
+            source_variants.extend(learned)
+except Exception:
+    pass
+
+seen = set()
+variants = []
+for value in source_variants:
+    norm = normalize(value)
+    if not norm or norm in seen:
+        continue
+    seen.add(norm)
+    variants.append(norm)
+
+if not variants:
+    variants = ["faye arise"]
+
+print(json.dumps(variants))
 PY
 }
 
@@ -125,16 +166,168 @@ PY
 wake_match() {
   local heard="$1"
   python3 - "$heard" "$VARIANTS_JSON" <<'PY'
+import difflib
 import json
+import re
 import sys
-heard = sys.argv[1].strip().lower()
+
+heard = str(sys.argv[1] or "")
 variants = json.loads(sys.argv[2] or "[]")
-for v in variants:
-    candidate = str(v).strip().lower()
-    if candidate and candidate in heard:
-        print("1")
-        sys.exit(0)
-print("0")
+
+def normalize_phrase(text):
+    value = str(text or "").strip().lower()
+    value = re.sub(r"[^a-z0-9\s]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+def merge_split_tokens(tokens):
+    merged = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "a" and i + 1 < len(tokens) and tokens[i + 1] == "rise":
+            merged.append("arise")
+            i += 2
+            continue
+        merged.append(token)
+        i += 1
+    return merged
+
+def phonetic_key(token):
+    text = token.lower()
+    text = re.sub(r"[^a-z0-9]", "", text)
+    if not text:
+        return ""
+    text = text.replace("ph", "f").replace("ck", "k")
+    text = re.sub(r"th", "t", text)
+    text = re.sub(r"[fbpv]", "b", text)
+    text = re.sub(r"[ckq]", "k", text)
+    text = re.sub(r"[gj]", "j", text)
+    text = re.sub(r"[zs]", "s", text)
+    text = re.sub(r"[dt]", "t", text)
+    text = re.sub(r"[aeiouy]+", "a", text)
+    text = re.sub(r"(.)\1+", r"\1", text)
+    return text
+
+def token_similarity(left, right):
+    if left == right:
+        return 1.0
+    base = difflib.SequenceMatcher(None, left, right).ratio()
+    if phonetic_key(left) and phonetic_key(left) == phonetic_key(right):
+        return max(base, 0.88)
+    return base
+
+heard_norm = normalize_phrase(heard)
+if not heard_norm:
+    print("0\t")
+    sys.exit(0)
+
+heard_tokens = merge_split_tokens(heard_norm.split())
+if not heard_tokens:
+    print("0\t")
+    sys.exit(0)
+
+for raw_variant in variants:
+    variant = normalize_phrase(raw_variant)
+    if not variant:
+        continue
+    variant_tokens = merge_split_tokens(variant.split())
+    if not variant_tokens:
+        continue
+
+    target_len = len(variant_tokens)
+    if target_len == 0 or len(heard_tokens) < target_len:
+        continue
+
+    for start in range(0, len(heard_tokens) - target_len + 1):
+        window_tokens = heard_tokens[start:start + target_len]
+        candidate = " ".join(window_tokens)
+
+        if candidate == variant:
+            print("1\t")
+            sys.exit(0)
+
+        exact_count = 0
+        close_count = 0
+        avg_similarity = 0.0
+        for cand_token, variant_token in zip(window_tokens, variant_tokens):
+            similarity = token_similarity(cand_token, variant_token)
+            avg_similarity += similarity
+            if cand_token == variant_token:
+                exact_count += 1
+                close_count += 1
+            elif similarity >= 0.72:
+                close_count += 1
+
+        avg_similarity = avg_similarity / float(target_len)
+        # Adaptive match rule:
+        # - At least one token is exact.
+        # - Every token is close enough.
+        # - Aggregate similarity is high enough to avoid false positives.
+        if exact_count >= 1 and close_count == target_len and avg_similarity >= 0.78:
+            learned = candidate if candidate != variant else ""
+            print(f"1\t{learned}")
+            sys.exit(0)
+
+print("0\t")
+PY
+}
+
+remember_wake_variant() {
+  local variant="$1"
+  [[ -n "$variant" ]] || return 0
+  python3 - "$LEARNED_VARIANTS_FILE" "$variant" <<'PY'
+import json
+import os
+import re
+import stat
+import tempfile
+import sys
+
+path = sys.argv[1]
+incoming = sys.argv[2]
+
+def normalize(phrase):
+    text = str(phrase or "").strip().lower()
+    text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+candidate = normalize(incoming)
+if not candidate:
+    sys.exit(0)
+
+items = []
+if os.path.exists(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, list):
+            items = [normalize(x) for x in data if normalize(x)]
+    except Exception:
+        items = []
+
+if candidate in items:
+    sys.exit(0)
+
+items.append(candidate)
+items = items[-24:]
+
+directory = os.path.dirname(path) or "."
+os.makedirs(directory, exist_ok=True)
+fd, tmp_path = tempfile.mkstemp(prefix=".wake-variants-", suffix=".json", dir=directory)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(items, fh, indent=2)
+        fh.write("\n")
+    os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+    os.replace(tmp_path, path)
+except Exception:
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
+    raise
 PY
 }
 
@@ -173,6 +366,17 @@ send_telegram() {
     -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -d "chat_id=${CHAT_ID}" \
     --data-urlencode "text=${text}" >/dev/null 2>&1 || true
+}
+
+speak_local() {
+  local text="$1"
+  local escaped_text
+  escaped_text="$(json_escape "$text")"
+  curl -sS --max-time 8 --retry 1 --retry-all-errors \
+    -X POST "${LOCAL_API_BASE_URL}/v1/speak" \
+    -H "Content-Type: application/json" \
+    -d "{\"text\":${escaped_text}}" \
+    >/dev/null 2>&1 || true
 }
 
 json_escape() {
@@ -364,9 +568,21 @@ while true; do
   [[ -n "$heard" ]] || continue
   log "HEARD" "$heard"
 
-  matched="$(wake_match "$heard")"
-  if [[ "$matched" != "1" ]]; then
+  match_output="$(wake_match "$heard")"
+  match_flag="$(printf '%s' "$match_output" | cut -f1)"
+  learned_variant="$(printf '%s' "$match_output" | cut -f2-)"
+
+  if [[ "$match_flag" != "1" ]]; then
     continue
+  fi
+
+  if [[ -n "$learned_variant" ]]; then
+    remember_wake_variant "$learned_variant" || true
+    VARIANTS_JSON="$(json_variants)"
+    learned_variant_json="$(json_escape "$learned_variant")"
+    wake_word_json="$(json_escape "$WAKE_WORD")"
+    post_local_event "wake_variant_learned" "{\"variant\":${learned_variant_json},\"wake_word\":${wake_word_json}}"
+    log "WAKE_VARIANT_LEARNED" "$learned_variant"
   fi
 
   log "WAKE_DETECTED" "$heard"
@@ -375,6 +591,10 @@ while true; do
   wake_word_json="$(json_escape "$WAKE_WORD")"
   session_json="$(json_escape "$session_id")"
   post_local_event "wake_detected" "{\"heard\":${heard_json},\"wake_word\":${wake_word_json},\"session_id\":${session_json}}"
+  if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]]; then
+    log "WAKE_LOCAL_ACK" "No Telegram bridge credentials configured; speaking local wake acknowledgment"
+    speak_local "${FAYE_WAKE_ACK_TEXT:-I am here and listening. Tell me what you need.}"
+  fi
   send_telegram "#faye_wake session=${session_id} wake_word=${WAKE_WORD}"
   current_turn_limit="$CONVERSATION_BASE_TURNS"
   post_local_event "listener_status" "{\"status\":\"conversation_loop_started\",\"session_id\":${session_json},\"base_turns\":${CONVERSATION_BASE_TURNS},\"extend_by\":${CONVERSATION_EXTEND_BY},\"hard_cap\":${CONVERSATION_HARD_CAP},\"max_turns\":${current_turn_limit}}"
