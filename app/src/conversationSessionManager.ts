@@ -7,6 +7,29 @@ import type {
   ConversationMessageStatus,
   ConversationTurnPolicy
 } from "./types";
+import {
+  DEFAULT_MAX_CONTEXT_MESSAGES,
+  DEFAULT_MAX_SESSIONS,
+  DEFAULT_MAX_TURNS_PER_SESSION,
+  DEFAULT_TTL_MS,
+  MAX_CONTEXT_LIMIT,
+  clampContextLimit,
+  clampTurnPolicy,
+  formatIso,
+  normalizeReason,
+  toActionCode,
+  toActionExecutionStatus,
+  toBoolean,
+  toBridgeAction,
+  toListenerStatus,
+  toReason,
+  toSessionId,
+  toSpokenStatus,
+  toText,
+  toTurn,
+  toTurnLimit,
+  toWaitResult
+} from "./conversationSessionManagerHelpers";
 
 type SpokenStatus = "ok" | "error" | "duplicate";
 type SessionState = "awaiting_user" | "awaiting_assistant" | "agent_responding" | "ended";
@@ -112,165 +135,6 @@ interface ConversationSessionManagerDeps {
   maxSessions?: number;
   turnPolicy?: Partial<ConversationTurnPolicy>;
   nowMsFn?: () => number;
-}
-
-const DEFAULT_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_MAX_TURNS_PER_SESSION = 16;
-const DEFAULT_MAX_SESSIONS = 24;
-const DEFAULT_MAX_CONTEXT_MESSAGES = 160;
-const DEFAULT_CONTEXT_LIMIT = 8;
-const MAX_CONTEXT_LIMIT = 16;
-const DEFAULT_TURN_POLICY: ConversationTurnPolicy = {
-  baseTurns: 8,
-  extendBy: 4,
-  hardCap: 16
-};
-
-function formatIso(ms: number): string {
-  return new Date(ms).toISOString();
-}
-
-function toSessionId(payload: Record<string, unknown>): string | null {
-  const value = payload.session_id ?? payload.sessionId;
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toText(payload: Record<string, unknown>): string | null {
-  const value = payload.text;
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toTurn(payload: Record<string, unknown>): number | null {
-  const value = payload.turn;
-  if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 500) {
-    return value;
-  }
-  if (typeof value === "string" && /^\d+$/.test(value)) {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 500) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function toSpokenStatus(payload: Record<string, unknown>): SpokenStatus | null {
-  const status = payload.status;
-  if (status === "ok" || status === "error" || status === "duplicate") {
-    return status;
-  }
-  return null;
-}
-
-function toListenerStatus(payload: Record<string, unknown>): string | null {
-  const status = payload.status;
-  if (typeof status !== "string") {
-    return null;
-  }
-  const normalized = status.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : null;
-}
-
-function toReason(payload: Record<string, unknown>): string | undefined {
-  return normalizeReason(payload.reason);
-}
-
-function toPositiveInt(value: unknown): number | null {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    return value;
-  }
-  if (typeof value === "string" && /^\d+$/.test(value)) {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function toTurnLimit(payload: Record<string, unknown>): number | null {
-  const maxTurns = payload.max_turns ?? payload.maxTurns;
-  return toPositiveInt(maxTurns);
-}
-
-function normalizeReason(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_:-]+/g, "_").slice(0, 80);
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function clampTurnPolicy(input: Partial<ConversationTurnPolicy> | undefined): ConversationTurnPolicy {
-  const baseTurns = Math.max(1, Math.min(32, Math.floor(input?.baseTurns ?? DEFAULT_TURN_POLICY.baseTurns)));
-  const extendBy = Math.max(1, Math.min(16, Math.floor(input?.extendBy ?? DEFAULT_TURN_POLICY.extendBy)));
-  const hardCapRaw = Math.max(1, Math.min(64, Math.floor(input?.hardCap ?? DEFAULT_TURN_POLICY.hardCap)));
-  const hardCap = Math.max(baseTurns, hardCapRaw);
-  return { baseTurns, extendBy, hardCap };
-}
-
-function toBridgeAction(value: unknown): BridgeActionName | null {
-  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (
-    text === "health_summary" ||
-    text === "voice_test" ||
-    text === "listener_restart" ||
-    text === "bridge_restart"
-  ) {
-    return text;
-  }
-  return null;
-}
-
-function toBoolean(value: unknown): boolean | null {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "yes" || normalized === "true" || normalized === "1") {
-      return true;
-    }
-    if (normalized === "no" || normalized === "false" || normalized === "0") {
-      return false;
-    }
-  }
-  return null;
-}
-
-function toActionCode(payload: Record<string, unknown>): string | undefined {
-  const fromCode = normalizeReason(payload.code);
-  if (fromCode) {
-    return fromCode;
-  }
-  return normalizeReason(payload.reason);
-}
-
-function toActionExecutionStatus(payload: Record<string, unknown>): "ok" | "error" | null {
-  const status = payload.status;
-  if (status === "ok" || status === "error") {
-    return status;
-  }
-  return null;
-}
-
-function toWaitResult(payload: Record<string, unknown>): string | undefined {
-  return normalizeReason(payload.wait_result ?? payload.waitResult);
-}
-
-function clampContextLimit(value: number | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return DEFAULT_CONTEXT_LIMIT;
-  }
-  return Math.max(1, Math.min(MAX_CONTEXT_LIMIT, Math.floor(value)));
 }
 
 export class ConversationSessionManager {

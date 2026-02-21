@@ -245,3 +245,63 @@ test("conversation manager exposes normalized role context with action outcomes"
   assert.equal(context?.messages.some((item) => item.status === "needs_confirm" && item.action === "listener_restart"), true);
   assert.equal(context?.messages.some((item) => item.role === "assistant" && item.status === "ok"), true);
 });
+
+test("conversation manager filters pending context messages when includePending is false", () => {
+  const events = new EventHub();
+  let now = 50_000;
+  const manager = new ConversationSessionManager({
+    events,
+    logger: makeLogger(),
+    nowMsFn: () => now,
+    ttlMs: 60_000
+  });
+
+  events.publish("wake_detected", { session_id: "s-pending-1" });
+  now += 5;
+  events.publish("message_transcribed", { session_id: "s-pending-1", turn: 1, text: "Need response" });
+  now += 5;
+  events.publish("bridge_speak_received", { session_id: "s-pending-1", turn: 1, text: "Working on it" });
+
+  const withPending = manager.getContext("s-pending-1", { includePending: true, limit: 8 });
+  const withoutPending = manager.getContext("s-pending-1", { includePending: false, limit: 8 });
+  manager.stop();
+
+  assert.equal(withPending?.messages.some((item) => item.role === "assistant" && item.status === "pending"), true);
+  assert.equal(withoutPending?.messages.some((item) => item.role === "assistant" && item.status === "pending"), false);
+});
+
+test("conversation manager capacity pruning prefers removing ended sessions first", () => {
+  const events = new EventHub();
+  let now = 60_000;
+  const manager = new ConversationSessionManager({
+    events,
+    logger: makeLogger(),
+    nowMsFn: () => now,
+    ttlMs: 60_000,
+    maxSessions: 4
+  });
+
+  events.publish("wake_detected", { session_id: "s-cap-a" });
+  now += 5;
+  events.publish("conversation_ended", { session_id: "s-cap-a", reason: "external_stop" });
+
+  now += 5;
+  events.publish("wake_detected", { session_id: "s-cap-b" });
+  now += 5;
+  events.publish("wake_detected", { session_id: "s-cap-c" });
+  now += 5;
+  events.publish("wake_detected", { session_id: "s-cap-d" });
+  now += 5;
+  events.publish("wake_detected", { session_id: "s-cap-e" });
+
+  const snapshot = manager.getSnapshot();
+  manager.stop();
+
+  assert.equal(snapshot.retainedSessions, 4);
+  assert.equal(snapshot.sessions.some((session) => session.sessionId === "s-cap-a"), false);
+  assert.equal(snapshot.sessions.some((session) => session.sessionId === "s-cap-b"), true);
+  assert.equal(snapshot.sessions.some((session) => session.sessionId === "s-cap-c"), true);
+  assert.equal(snapshot.sessions.some((session) => session.sessionId === "s-cap-d"), true);
+  assert.equal(snapshot.sessions.some((session) => session.sessionId === "s-cap-e"), true);
+  assert.equal(snapshot.endReasons.capacity_pruned ?? 0, 0);
+});

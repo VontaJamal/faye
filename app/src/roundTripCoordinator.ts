@@ -1,6 +1,16 @@
 import type { AppEvent, EventHub } from "./events";
 import type { Logger } from "./logger";
 import { expandHomePath, pathExists, readSecret } from "./utils";
+import {
+  DEFAULT_RETRY_LIMIT,
+  DEFAULT_WATCHDOG_MS,
+  STALE_SESSION_MS,
+  formatIso,
+  sendTelegram,
+  toSessionId,
+  toSpokenStatus,
+  toText
+} from "./roundTripCoordinatorHelpers";
 
 export type RoundTripSessionState = "wake_detected" | "awaiting_speak" | "speak_received";
 type SpokenStatus = "ok" | "error" | "duplicate";
@@ -79,59 +89,6 @@ interface RoundTripCoordinatorDeps {
   nowMsFn?: () => number;
   sendTelegramFn?: (botToken: string, chatId: number, text: string) => Promise<void>;
   resolveTelegramFn?: () => Promise<TelegramCredentials | null>;
-}
-
-const DEFAULT_WATCHDOG_MS = 12_000;
-const DEFAULT_RETRY_LIMIT = 1;
-const STALE_SESSION_MS = 180_000;
-
-function toSessionId(payload: Record<string, unknown>): string | null {
-  const value = payload.session_id ?? payload.sessionId;
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toText(payload: Record<string, unknown>): string | undefined {
-  const value = payload.text;
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function toSpokenStatus(payload: Record<string, unknown>): SpokenStatus | null {
-  const status = payload.status;
-  if (status === "ok" || status === "error" || status === "duplicate") {
-    return status;
-  }
-  return null;
-}
-
-function formatIso(ms: number): string {
-  return new Date(ms).toISOString();
-}
-
-async function sendTelegram(botToken: string, chatId: number, text: string): Promise<void> {
-  const payload = new URLSearchParams();
-  payload.set("chat_id", String(chatId));
-  payload.set("text", text);
-
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: payload.toString()
-  });
-
-  if (!response.ok) {
-    const body = (await response.text()).slice(0, 200);
-    throw new Error(`E_TELEGRAM_SEND_${response.status}:${body}`);
-  }
 }
 
 export class RoundTripCoordinator {
