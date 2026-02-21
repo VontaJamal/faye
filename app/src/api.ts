@@ -6,6 +6,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { ZodError } from "zod";
 
 import { playAudioFile } from "./audio";
+import { ConversationSessionManager } from "./conversationSessionManager";
 import { runDoctor, type DoctorReport } from "./doctor";
 import type { EventHub } from "./events";
 import { ElevenLabsClient } from "./elevenlabs";
@@ -35,6 +36,15 @@ interface ApiDependencies {
   elevenLabs: ElevenLabsClient;
   services: ServiceControl;
   uxKpi?: UxKpiTracker;
+}
+
+function readPositiveEnvInt(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw || !/^\d+$/.test(raw)) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function isLoopbackAddress(address?: string): boolean {
@@ -182,6 +192,22 @@ export function createApiServer(deps: ApiDependencies): express.Express {
   const metrics = new MetricsCollector({
     events: deps.events
   });
+  const legacyTurns = readPositiveEnvInt("FAYE_CONVERSATION_MAX_TURNS");
+  const baseTurns = readPositiveEnvInt("FAYE_CONVERSATION_BASE_TURNS") ?? legacyTurns;
+  const extendBy = readPositiveEnvInt("FAYE_CONVERSATION_EXTEND_BY");
+  const hardCap = readPositiveEnvInt("FAYE_CONVERSATION_HARD_CAP");
+  const ttlMs = readPositiveEnvInt("FAYE_CONVERSATION_TTL_MS");
+
+  const conversation = new ConversationSessionManager({
+    events: deps.events,
+    logger: deps.logger,
+    ttlMs,
+    turnPolicy: {
+      ...(typeof baseTurns === "number" ? { baseTurns } : {}),
+      ...(typeof extendBy === "number" ? { extendBy } : {}),
+      ...(typeof hardCap === "number" ? { hardCap } : {})
+    }
+  });
   const uxKpi = deps.uxKpi ?? new UxKpiTracker();
 
   const recordUxKpi = async (operation: string, callback: () => Promise<void>): Promise<void> => {
@@ -201,6 +227,18 @@ export function createApiServer(deps: ApiDependencies): express.Express {
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  };
+
+  const normalizeReason = (value: unknown, fallback: string): string => {
+    if (typeof value !== "string") {
+      return fallback;
+    }
+    const normalized = value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_:-]+/g, "_")
+      .slice(0, 80);
+    return normalized.length > 0 ? normalized : fallback;
   };
 
   const speakWithProfile = async (text: string, profileId?: string): Promise<{ profileId: string }> => {
@@ -247,6 +285,7 @@ export function createApiServer(deps: ApiDependencies): express.Express {
         bridgeRuntime,
         roundTrip: roundTrip.getSnapshot(),
         metrics: metrics.getSnapshot(),
+        conversation: conversation.getSnapshot(),
         onboarding: onboardingSummary({
           doctor,
           listener,
@@ -270,6 +309,52 @@ export function createApiServer(deps: ApiDependencies): express.Express {
         return;
       }
       res.json(snapshot);
+    } catch (error) {
+      routeError(deps.logger, res, error);
+    }
+  });
+
+  app.get("/v1/conversation/:sessionId", (req, res) => {
+    try {
+      const sessionId = req.params.sessionId.trim();
+      if (!sessionId) {
+        res.status(400).json({ error: "E_CONVERSATION_ID_REQUIRED" });
+        return;
+      }
+
+      const session = conversation.getSessionSnapshot(sessionId);
+      if (!session) {
+        res.status(404).json({ error: "E_CONVERSATION_NOT_FOUND" });
+        return;
+      }
+
+      res.json({ session });
+    } catch (error) {
+      routeError(deps.logger, res, error);
+    }
+  });
+
+  app.post("/v1/conversation/:sessionId/end", (req, res) => {
+    try {
+      const sessionId = req.params.sessionId.trim();
+      if (!sessionId) {
+        res.status(400).json({ error: "E_CONVERSATION_ID_REQUIRED" });
+        return;
+      }
+
+      const reason = normalizeReason((req.body ?? {})["reason"], "manual_terminated");
+      const session = conversation.endSession(sessionId, reason);
+      if (!session) {
+        res.status(404).json({ error: "E_CONVERSATION_NOT_FOUND" });
+        return;
+      }
+
+      deps.events.publish("conversation_ended", {
+        session_id: sessionId,
+        reason
+      });
+
+      res.json({ session });
     } catch (error) {
       routeError(deps.logger, res, error);
     }

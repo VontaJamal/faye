@@ -5,7 +5,9 @@ interface MockState {
   listenerRestarts: number;
   bridgeRestarts: number;
   speakTests: number;
+  conversationEnds: number;
   setupPayloads: Array<Record<string, unknown>>;
+  conversationEnded: boolean;
   onboarding: {
     checklist: {
       bridgeRequired: boolean;
@@ -27,7 +29,9 @@ function initialState(): MockState {
     listenerRestarts: 0,
     bridgeRestarts: 0,
     speakTests: 0,
+    conversationEnds: 0,
     setupPayloads: [],
+    conversationEnded: false,
     onboarding: {
       checklist: {
         bridgeRequired: false,
@@ -80,6 +84,8 @@ async function json(route: Route, body: unknown, status = 200): Promise<void> {
 }
 
 function healthFromState(state: MockState): Record<string, unknown> {
+  const activeSessionState = state.conversationEnded ? "ended" : "awaiting_user";
+  const endReason = state.conversationEnded ? "dashboard_manual_end" : undefined;
   return {
     ok: true,
     doctor: {
@@ -144,6 +150,72 @@ function healthFromState(state: MockState): Record<string, unknown> {
         denominator: 2,
         value: 0
       }
+    },
+    conversation: {
+      policy: {
+        ttlMs: 900000,
+        maxTurnsRetainedPerSession: 16,
+        maxSessions: 24,
+        turnPolicy: {
+          baseTurns: 8,
+          extendBy: 4,
+          hardCap: 16
+        }
+      },
+      activeSessions: state.conversationEnded ? 0 : 1,
+      retainedSessions: 1,
+      totals: {
+        sessionsOpened: 1,
+        sessionsEnded: state.conversationEnded ? 1 : 0,
+        sessionsExpired: 0,
+        userTurns: 2,
+        assistantResponses: 2
+      },
+      endReasons: state.conversationEnded
+        ? {
+            dashboard_manual_end: 1
+          }
+        : {},
+      lastEnded: state.conversationEnded
+        ? {
+            sessionId: "session-1",
+            at: "2026-02-21T00:06:00.000Z",
+            reason: "dashboard_manual_end"
+          }
+        : null,
+      sessions: [
+        {
+          sessionId: "session-1",
+          state: activeSessionState,
+          createdAt: "2026-02-21T00:00:00.000Z",
+          updatedAt: "2026-02-21T00:05:00.000Z",
+          expiresAt: "2026-02-21T00:20:00.000Z",
+          expiresInMs: 600000,
+          endReason,
+          totalTurns: 2,
+          retainedTurns: 2,
+          turnLimit: 8,
+          extensionsUsed: 0,
+          turns: [
+            {
+              turn: 1,
+              userText: "Hey Faye",
+              userAt: "2026-02-21T00:01:00.000Z",
+              assistantText: "Hi there",
+              assistantAt: "2026-02-21T00:01:03.000Z",
+              assistantStatus: "ok"
+            },
+            {
+              turn: 2,
+              userText: "Check status",
+              userAt: "2026-02-21T00:02:00.000Z",
+              assistantText: "Status is healthy",
+              assistantAt: "2026-02-21T00:02:02.000Z",
+              assistantStatus: "ok"
+            }
+          ]
+        }
+      ]
     },
     onboarding: state.onboarding
   };
@@ -247,6 +319,18 @@ async function installDashboardApiMocks(page: Page): Promise<MockState> {
     });
   });
 
+  await page.route("**/v1/conversation/*/end", async (route) => {
+    state.conversationEnds += 1;
+    state.conversationEnded = true;
+    await json(route, {
+      session: {
+        sessionId: "session-1",
+        state: "ended",
+        endReason: "dashboard_manual_end"
+      }
+    });
+  });
+
   return state;
 }
 
@@ -258,6 +342,8 @@ test("page load renders status chips and first-success checklist", async ({ page
   await expect(page.locator("#service-summary")).toContainText("Dashboard: running");
   await expect(page.locator("#first-success-checklist")).toContainText("Progress: 3/4");
   await expect(page.locator("#first-success-checklist")).toContainText("Voice test passed");
+  await expect(page.locator("#conversation-state")).toContainText("Turn progress: 2/8");
+  await expect(page.locator("#conversation-turns")).toContainText("Turn 1");
 });
 
 test("invalid setup blocks submit with field-level errors", async ({ page }) => {
@@ -328,4 +414,15 @@ test("voice test success advances checklist to complete", async ({ page }) => {
   await expect(page.locator("#first-success-checklist")).toContainText("Ready. You can now talk to your agent in a stable loop.");
 
   expect(state.speakTests).toBe(1);
+});
+
+test("conversation end button terminates active session", async ({ page }) => {
+  const state = await installDashboardApiMocks(page);
+  await page.goto("/");
+
+  await page.click("#conversation-end");
+  await expect(page.locator("#setup-status")).toContainText("Conversation session ended");
+  await expect(page.locator("#conversation-state")).toContainText("Status: Ended");
+
+  expect(state.conversationEnds).toBe(1);
 });

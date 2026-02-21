@@ -13,20 +13,22 @@ test("parses simple speak command", () => {
 });
 
 test("parses key-value speak command with session", () => {
-  const command = parseBridgeCommand("#faye_speak session=abc123 text=Mission acknowledged");
+  const command = parseBridgeCommand("#faye_speak session=abc123 turn=2 text=Mission acknowledged");
   assert.deepEqual(command, {
     type: "speak",
     text: "Mission acknowledged",
-    sessionId: "abc123"
+    sessionId: "abc123",
+    turn: 2
   });
 });
 
 test("parses JSON speak command", () => {
-  const command = parseBridgeCommand('#faye_speak {"session_id":"s-1","text":"Jarvis online"}');
+  const command = parseBridgeCommand('#faye_speak {"session_id":"s-1","turn":3,"text":"Jarvis online"}');
   assert.deepEqual(command, {
     type: "speak",
     text: "Jarvis online",
-    sessionId: "s-1"
+    sessionId: "s-1",
+    turn: 3
   });
 });
 
@@ -43,3 +45,21 @@ test("parses ping command", () => {
   assert.deepEqual(command, { type: "ping" });
 });
 
+test("parses action command with confirmation", () => {
+  const command = parseBridgeCommand("#faye_action name=listener_restart session=s-1 confirm=yes");
+  assert.deepEqual(command, {
+    type: "action",
+    name: "listener_restart",
+    sessionId: "s-1",
+    confirm: true
+  });
+});
+
+test("parses action command with plain-name payload", () => {
+  const command = parseBridgeCommand("#faye_action voice_test session=s-2");
+  assert.deepEqual(command, {
+    type: "action",
+    name: "voice_test",
+    sessionId: "s-2"
+  });
+});

@@ -16,7 +16,11 @@ const eventsList = document.querySelector("#events");
 const runtimeStatus = document.querySelector("#runtime-status");
 const serviceSummary = document.querySelector("#service-summary");
 const firstSuccessChecklist = document.querySelector("#first-success-checklist");
+const conversationState = document.querySelector("#conversation-state");
+const conversationTurns = document.querySelector("#conversation-turns");
+const conversationEnd = document.querySelector("#conversation-end");
 let latestHealth = null;
+let activeConversationSessionId = null;
 function setStatus(message, error = false) {
     if (!setupStatus) {
         return;
@@ -230,6 +234,79 @@ function renderFirstSuccessChecklist(health) {
         .join("");
     firstSuccessChecklist.append(progress, goal, list, metrics);
 }
+function formatConversationState(state) {
+    if (state === "awaiting_assistant") {
+        return "Waiting for assistant response";
+    }
+    if (state === "agent_responding") {
+        return "Assistant response in progress";
+    }
+    if (state === "ended") {
+        return "Ended";
+    }
+    return "Waiting for your next message";
+}
+function renderConversationPanel(health) {
+    if (!conversationState || !conversationTurns || !conversationEnd) {
+        return;
+    }
+    conversationState.innerHTML = "";
+    conversationTurns.innerHTML = "";
+    activeConversationSessionId = null;
+    const snapshot = health.conversation;
+    if (!snapshot) {
+        appendEmptyState(conversationState, "Conversation state is not available yet.");
+        conversationEnd.disabled = true;
+        return;
+    }
+    const active = snapshot.sessions.find((session) => session.state !== "ended") ?? snapshot.sessions[0] ?? null;
+    const headline = document.createElement("div");
+    headline.className = "conversation-headline";
+    headline.innerHTML = [
+        `Active sessions: <strong>${snapshot.activeSessions}</strong>`,
+        `Retained sessions: <strong>${snapshot.retainedSessions}</strong>`,
+        `Policy: <strong>${snapshot.policy.turnPolicy.baseTurns}+${snapshot.policy.turnPolicy.extendBy}</strong> up to <strong>${snapshot.policy.turnPolicy.hardCap}</strong> turns`,
+        `Context TTL: <strong>${Math.round(snapshot.policy.ttlMs / 60000)} min</strong>`
+    ]
+        .map((line) => `<p>${line}</p>`)
+        .join("");
+    conversationState.append(headline);
+    if (!active) {
+        appendEmptyState(conversationTurns, "No active conversation yet. Trigger wake word to begin.");
+        conversationEnd.disabled = true;
+        return;
+    }
+    activeConversationSessionId = active.state === "ended" ? null : active.sessionId;
+    const statusCard = document.createElement("div");
+    statusCard.className = `conversation-status-card ${active.state === "ended" ? "ended" : "active"}`;
+    statusCard.innerHTML = [
+        `<p><strong>Session</strong>: ${active.sessionId}</p>`,
+        `<p><strong>Status</strong>: ${formatConversationState(active.state)}</p>`,
+        `<p><strong>Turn progress</strong>: ${active.totalTurns}/${active.turnLimit}</p>`,
+        `<p><strong>Retained turns</strong>: ${active.retainedTurns}</p>`,
+        `<p><strong>Expires</strong>: ${formatTimestamp(active.expiresAt)} (${Math.ceil(active.expiresInMs / 1000)}s)</p>`,
+        active.endReason ? `<p><strong>End reason</strong>: ${active.endReason}</p>` : ""
+    ].join("");
+    conversationState.append(statusCard);
+    const retainedTurns = active.turns.slice(-6);
+    if (retainedTurns.length === 0) {
+        appendEmptyState(conversationTurns, "No retained turns yet.");
+    }
+    else {
+        for (const turn of retainedTurns) {
+            const item = document.createElement("li");
+            item.className = "conversation-turn";
+            item.innerHTML = [
+                `<p class=\"conversation-turn-title\">Turn ${turn.turn}</p>`,
+                `<p><strong>You</strong>: ${turn.userText ?? "n/a"}</p>`,
+                `<p><strong>Agent</strong>: ${turn.assistantText ?? "pending"}</p>`,
+                `<p><strong>Agent status</strong>: ${turn.assistantStatus ?? "n/a"}</p>`
+            ].join("");
+            conversationTurns.append(item);
+        }
+    }
+    conversationEnd.disabled = activeConversationSessionId === null;
+}
 function appendProfileLine(container, text, strong = false) {
     const el = document.createElement(strong ? "strong" : "small");
     el.textContent = text;
@@ -332,6 +409,7 @@ async function refreshHealth() {
     renderRuntimeStatus(health.bridgeRuntime, health.roundTrip, health.metrics);
     renderServiceSummary(health);
     renderFirstSuccessChecklist(health);
+    renderConversationPanel(health);
 }
 function renderEvent(payload) {
     const item = document.createElement("li");
@@ -528,6 +606,25 @@ function bindQuickActions() {
         catch (error) {
             setStatus(error instanceof Error ? error.message : String(error), true);
             await refreshHealth().catch(() => undefined);
+        }
+    });
+    conversationEnd?.addEventListener("click", async () => {
+        if (!activeConversationSessionId) {
+            setStatus("No active conversation session to end.");
+            return;
+        }
+        try {
+            await api(`/v1/conversation/${encodeURIComponent(activeConversationSessionId)}/end`, {
+                method: "POST",
+                body: JSON.stringify({
+                    reason: "dashboard_manual_end"
+                })
+            });
+            setStatus("Conversation session ended.");
+            await refreshHealth();
+        }
+        catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), true);
         }
     });
 }

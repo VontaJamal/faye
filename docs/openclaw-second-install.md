@@ -66,7 +66,28 @@ Complete all checklist items:
 
 When checklist shows `4/4`, you are in first-success state.
 
-## 6. Collect adoption KPI snapshot
+## 6. Conversational light loop (post-activation)
+
+Open:
+
+- `http://127.0.0.1:4587`
+
+Use the **Conversation Session** panel to verify:
+
+1. active session state,
+2. turn progress (`8` base turns, auto-extend by `4`, hard cap `16`),
+3. retained turn history for current context window (`15` minutes),
+4. emergency session end control.
+
+API checks:
+
+```bash
+curl -s http://127.0.0.1:4587/v1/health | jq '.conversation'
+curl -s http://127.0.0.1:4587/v1/conversation/<session_id> | jq '.session'
+curl -s -X POST http://127.0.0.1:4587/v1/conversation/<session_id>/end -H 'Content-Type: application/json' -d '{"reason":"manual_terminated"}'
+```
+
+## 7. Collect adoption KPI snapshot
 
 ```bash
 node ./scripts/install-kpi.mjs --json

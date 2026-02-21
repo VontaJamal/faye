@@ -399,6 +399,81 @@ button:hover {
   margin-bottom: 0;
 }
 
+.conversation-state {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.conversation-headline {
+  border: 1px solid #d4e2de;
+  border-radius: 10px;
+  background: #f4fbf8;
+  padding: 0.58rem 0.64rem;
+}
+
+.conversation-headline p {
+  margin: 0 0 0.24rem;
+  font-size: 0.83rem;
+  color: #335a55;
+}
+
+.conversation-headline p:last-child {
+  margin-bottom: 0;
+}
+
+.conversation-status-card {
+  border: 1px solid #b8ddd6;
+  border-radius: 10px;
+  background: #ecfaf6;
+  padding: 0.6rem 0.68rem;
+}
+
+.conversation-status-card.ended {
+  border-color: #e4c79b;
+  background: #fff6e9;
+}
+
+.conversation-status-card p {
+  margin: 0 0 0.24rem;
+  font-size: 0.84rem;
+  color: #2f5752;
+}
+
+.conversation-status-card p:last-child {
+  margin-bottom: 0;
+}
+
+.conversation-turns {
+  list-style: none;
+  margin: 0.62rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.conversation-turn {
+  border: 1px solid #cfe0db;
+  border-radius: 10px;
+  background: #f9fcfb;
+  padding: 0.5rem 0.6rem;
+}
+
+.conversation-turn-title {
+  margin: 0 0 0.2rem;
+  font-weight: 650;
+  color: #1f4a45;
+}
+
+.conversation-turn p {
+  margin: 0 0 0.14rem;
+  font-size: 0.81rem;
+  color: #3d5f5b;
+}
+
+.conversation-turn p:last-child {
+  margin-bottom: 0;
+}
+
 .runtime-item {
   background: #f0f8f5;
   border: 1px solid #d3e8e3;
@@ -543,6 +618,10 @@ button:hover {
 
   .panel:nth-child(5) {
     animation-delay: 240ms;
+  }
+
+  .panel:nth-child(6) {
+    animation-delay: 300ms;
   }
 
   button {

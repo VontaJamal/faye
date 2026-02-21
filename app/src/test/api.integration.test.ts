@@ -323,6 +323,19 @@ test("health endpoint returns bridge runtime field", async () => {
       bridgeRuntime: unknown;
       roundTrip: { activeSessions: number };
       metrics: { eventCounts: { wakeDetections: number } };
+      conversation: {
+        policy: {
+          ttlMs: number;
+          turnPolicy: {
+            baseTurns: number;
+            extendBy: number;
+            hardCap: number;
+          };
+        };
+        activeSessions: number;
+        endReasons: Record<string, number>;
+        sessions: Array<{ sessionId: string; state: string; turnLimit: number; turns: Array<{ turn: number; userText: string | null }> }>;
+      };
       onboarding: {
         checklist: {
           bridgeRequired: boolean;
@@ -341,6 +354,13 @@ test("health endpoint returns bridge runtime field", async () => {
     assert.equal("bridgeRuntime" in body, true);
     assert.equal(typeof body.roundTrip.activeSessions, "number");
     assert.equal(typeof body.metrics.eventCounts.wakeDetections, "number");
+    assert.equal(typeof body.conversation.activeSessions, "number");
+    assert.equal(body.conversation.policy.ttlMs > 0, true);
+    assert.equal(body.conversation.policy.turnPolicy.baseTurns, 8);
+    assert.equal(body.conversation.policy.turnPolicy.extendBy, 4);
+    assert.equal(body.conversation.policy.turnPolicy.hardCap, 16);
+    assert.equal(typeof body.conversation.endReasons, "object");
+    assert.equal(Array.isArray(body.conversation.sessions), true);
     assert.equal(typeof body.onboarding.checklist.bridgeRequired, "boolean");
     assert.equal(Array.isArray(body.onboarding.checklist.items), true);
     assert.equal(body.onboarding.checklist.total, 4);
@@ -439,6 +459,146 @@ test("metrics endpoint tracks wake-to-spoken flow", async () => {
     const promBody = await promResponse.text();
     assert.equal(promBody.includes("faye_wake_detections_total"), true);
     assert.equal(promBody.includes("faye_roundtrip_latency_p95_ms"), true);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("health conversation snapshot tracks multi-turn session context", async () => {
+  const harness = await startHarness();
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      "x-faye-local-token": "test-local-token"
+    };
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-convo-1", heard: "faye arise" } })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "message_transcribed", payload: { session_id: "s-convo-1", turn: 1, text: "hello" } })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "bridge_speak_received",
+        payload: { session_id: "s-convo-1", turn: 1, text: "hi there" }
+      })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "bridge_spoken", payload: { session_id: "s-convo-1", turn: 1, status: "ok" } })
+    });
+
+    const health = await requestJson(harness.baseUrl, "/v1/health");
+    assert.equal(health.status, 200);
+
+    const body = health.body as {
+      conversation: {
+        activeSessions: number;
+        sessions: Array<{
+          sessionId: string;
+          state: string;
+          turnLimit: number;
+          totalTurns: number;
+          turns: Array<{ turn: number; userText: string | null; assistantText: string | null }>;
+        }>;
+      };
+    };
+
+    const session = body.conversation.sessions.find((item) => item.sessionId === "s-convo-1");
+    assert.equal(body.conversation.activeSessions >= 1, true);
+    assert.equal(session?.state, "awaiting_user");
+    assert.equal(session?.turnLimit, 8);
+    assert.equal(session?.totalTurns, 1);
+    assert.equal(session?.turns[0]?.assistantText, "hi there");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("conversation session API returns retained session details", async () => {
+  const harness = await startHarness();
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      "x-faye-local-token": "test-local-token"
+    };
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-api-1", heard: "faye arise" } })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "message_transcribed", payload: { session_id: "s-api-1", turn: 1, text: "hello" } })
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/conversation/s-api-1");
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      session: {
+        sessionId: string;
+        state: string;
+        totalTurns: number;
+      };
+    };
+    assert.equal(body.session.sessionId, "s-api-1");
+    assert.equal(body.session.state, "awaiting_assistant");
+    assert.equal(body.session.totalTurns, 1);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("conversation end API terminates active session", async () => {
+  const harness = await startHarness();
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      "x-faye-local-token": "test-local-token"
+    };
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-end-api-1", heard: "faye arise" } })
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/conversation/s-end-api-1/end", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        reason: "dashboard_manual_end"
+      })
+    });
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      session: {
+        state: string;
+        endReason: string;
+      };
+    };
+    assert.equal(body.session.state, "ended");
+    assert.equal(body.session.endReason, "dashboard_manual_end");
+
+    const missing = await requestJson(harness.baseUrl, "/v1/conversation/missing-session/end", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+    assert.equal(missing.status, 404);
   } finally {
     await harness.close();
   }

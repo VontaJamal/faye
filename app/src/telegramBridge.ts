@@ -55,6 +55,7 @@ interface ProcessedKeyStore {
 
 interface ProcessUpdateDependencies {
   callLocalApiFn?: (pathname: string, body?: unknown) => Promise<void>;
+  fetchLocalJsonFn?: (pathname: string) => Promise<unknown>;
   sendTelegramFn?: (botToken: string, chatId: number, text: string) => Promise<void>;
   writeOffsetFn?: (offset: number) => Promise<void>;
   hasProcessedFn?: (key: string) => Promise<boolean>;
@@ -62,6 +63,8 @@ interface ProcessUpdateDependencies {
   recordRuntimeFn?: (patch: Partial<BridgeRuntimeStatus>) => Promise<void>;
   emitLocalEventFn?: (eventType: string, payload: Record<string, unknown>) => Promise<void>;
 }
+
+type ActionResultStatus = "ok" | "error" | "needs_confirm";
 
 const PROCESSED_KEYS_LIMIT = 2500;
 let processedKeysCache: ProcessedKeyStore | null = null;
@@ -242,7 +245,11 @@ async function markProcessedCommandKey(key: string): Promise<void> {
 
 function bridgeCommandKey(command: BridgeCommand, updateId: number): string {
   if (command.type === "speak") {
-    return command.sessionId ? `speak:session:${command.sessionId}` : `speak:update:${updateId}`;
+    return command.sessionId ? `speak:session:${command.sessionId}:update:${updateId}` : `speak:update:${updateId}`;
+  }
+  if (command.type === "action") {
+    const sessionPart = command.sessionId ? `:session:${command.sessionId}` : "";
+    return `action:${command.name}${sessionPart}:update:${updateId}`;
   }
   if (command.type === "activate_profile") {
     return `activate:${command.profileId}:update:${updateId}`;
@@ -289,6 +296,56 @@ async function callLocalApi(pathname: string, body?: unknown): Promise<void> {
     const text = await response.text();
     throw new Error(`E_LOCAL_API_${response.status}: ${text.slice(0, 180)}`);
   }
+}
+
+async function fetchLocalJson<T>(pathname: string): Promise<T> {
+  const response = await fetch(`http://127.0.0.1:4587${pathname}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`E_LOCAL_API_${response.status}: ${text.slice(0, 180)}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+function toRuntimeCommandType(command: BridgeCommand): string {
+  if (command.type === "action") {
+    return `action:${command.name}`;
+  }
+  return command.type;
+}
+
+function encodeReason(reason: string): string {
+  return reason
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_:-]+/g, "_")
+    .slice(0, 80) || "unknown";
+}
+
+async function sendActionResult(
+  sendTelegramFn: (botToken: string, chatId: number, text: string) => Promise<void>,
+  botToken: string,
+  chatId: number,
+  options: {
+    name: string;
+    status: ActionResultStatus;
+    reason: string;
+    sessionId?: string;
+  }
+): Promise<void> {
+  const sessionPart = options.sessionId ? ` session=${options.sessionId}` : "";
+  await sendTelegramFn(
+    botToken,
+    chatId,
+    `#faye_action_result name=${options.name} status=${options.status} reason=${encodeReason(options.reason)}${sessionPart}`
+  );
 }
 
 async function sendTelegram(botToken: string, chatId: number, text: string): Promise<void> {
@@ -382,6 +439,7 @@ export async function processUpdates(
   deps?: ProcessUpdateDependencies
 ): Promise<number> {
   const callLocalApiFn = deps?.callLocalApiFn ?? callLocalApi;
+  const fetchLocalJsonFn = deps?.fetchLocalJsonFn ?? ((pathname: string) => fetchLocalJson(pathname));
   const sendTelegramFn = deps?.sendTelegramFn ?? sendTelegram;
   const writeOffsetFn = deps?.writeOffsetFn ?? writeOffset;
   const hasProcessedFn = deps?.hasProcessedFn ?? hasProcessedCommandKey;
@@ -417,7 +475,7 @@ export async function processUpdates(
         updateId: update.update_id
       });
       await recordRuntimeFn({
-        lastCommandType: command.type,
+        lastCommandType: toRuntimeCommandType(command),
         lastCommandStatus: "duplicate"
       });
 
@@ -425,7 +483,8 @@ export async function processUpdates(
         await sendTelegramFn(botToken, chatId, `#faye_spoken status=duplicate session=${command.sessionId}`).catch(() => undefined);
         await emitLocalEventFn("bridge_spoken", {
           session_id: command.sessionId,
-          status: "duplicate"
+          status: "duplicate",
+          turn: command.turn
         }).catch(() => undefined);
       }
 
@@ -442,11 +501,64 @@ export async function processUpdates(
         await callLocalApiFn(`/v1/profiles/${encodeURIComponent(command.profileId)}/activate`);
         await markProcessedFn(commandKey);
         await sendTelegramFn(botToken, chatId, `#faye_ack action=activate_profile profile=${command.profileId} status=ok`);
+      } else if (command.type === "action") {
+        const action = command.name;
+        await emitLocalEventFn("bridge_action_requested", {
+          session_id: command.sessionId,
+          action,
+          update_id: update.update_id,
+          confirm: command.confirm === true
+        }).catch(() => undefined);
+
+        const requiresConfirm = action === "listener_restart" || action === "bridge_restart";
+        if (requiresConfirm && command.confirm !== true) {
+          await markProcessedFn(commandKey);
+          await sendActionResult(sendTelegramFn, botToken, chatId, {
+            name: action,
+            status: "needs_confirm",
+            reason: "confirm_required",
+            sessionId: command.sessionId
+          });
+
+          await emitLocalEventFn("bridge_action_blocked", {
+            session_id: command.sessionId,
+            action,
+            reason: "confirm_required"
+          }).catch(() => undefined);
+        } else {
+          if (action === "health_summary") {
+            await fetchLocalJsonFn("/v1/health");
+          } else if (action === "voice_test") {
+            await callLocalApiFn("/v1/speak/test", {
+              text: "Faye action voice test."
+            });
+          } else if (action === "listener_restart") {
+            await callLocalApiFn("/v1/listener/restart");
+          } else {
+            await callLocalApiFn("/v1/bridge/restart");
+          }
+
+          await markProcessedFn(commandKey);
+          await sendActionResult(sendTelegramFn, botToken, chatId, {
+            name: action,
+            status: "ok",
+            reason: "ok",
+            sessionId: command.sessionId
+          });
+
+          await emitLocalEventFn("bridge_action_executed", {
+            session_id: command.sessionId,
+            action,
+            status: "ok"
+          }).catch(() => undefined);
+        }
       } else if (command.type === "speak") {
         if (command.sessionId) {
           await emitLocalEventFn("bridge_speak_received", {
             session_id: command.sessionId,
-            update_id: update.update_id
+            update_id: update.update_id,
+            text: command.text,
+            turn: command.turn
           }).catch(() => undefined);
         }
 
@@ -461,12 +573,13 @@ export async function processUpdates(
         if (command.sessionId) {
           await emitLocalEventFn("bridge_spoken", {
             session_id: command.sessionId,
-            status: "ok"
+            status: "ok",
+            turn: command.turn
           }).catch(() => undefined);
         }
       }
       await recordRuntimeFn({
-        lastCommandType: command.type,
+        lastCommandType: toRuntimeCommandType(command),
         lastCommandStatus: "ok"
       });
     } catch (error) {
@@ -477,18 +590,35 @@ export async function processUpdates(
         message: messageText
       });
       await recordRuntimeFn({
-        lastCommandType: command.type,
+        lastCommandType: toRuntimeCommandType(command),
         lastCommandStatus: "error",
         lastErrorAt: new Date().toISOString(),
         lastError: messageText.slice(0, 200)
       });
 
-      const sessionPart = command.type === "speak" && command.sessionId ? ` session=${command.sessionId}` : "";
-      await sendTelegramFn(botToken, chatId, `#faye_spoken status=error${sessionPart}`).catch(() => undefined);
+      if (command.type === "action") {
+        await sendActionResult(sendTelegramFn, botToken, chatId, {
+          name: command.name,
+          status: "error",
+          reason: "execution_failed",
+          sessionId: command.sessionId
+        }).catch(() => undefined);
+        await emitLocalEventFn("bridge_action_executed", {
+          session_id: command.sessionId,
+          action: command.name,
+          status: "error",
+          reason: messageText.slice(0, 160)
+        }).catch(() => undefined);
+      } else {
+        const sessionPart = command.type === "speak" && command.sessionId ? ` session=${command.sessionId}` : "";
+        await sendTelegramFn(botToken, chatId, `#faye_spoken status=error${sessionPart}`).catch(() => undefined);
+      }
+
       if (command.type === "speak" && command.sessionId) {
         await emitLocalEventFn("bridge_spoken", {
           session_id: command.sessionId,
-          status: "error"
+          status: "error",
+          turn: command.turn
         }).catch(() => undefined);
       }
     }
