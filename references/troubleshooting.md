@@ -96,7 +96,7 @@ Fix checklist:
 5. Open the Conversation Session panel and inspect:
    - turn progress,
    - session status,
-   - end reason (`idle_timeout`, `explicit_user_stop`, `agent_timeout`, `max_turns_reached`).
+   - end reason (`idle_timeout`, `explicit_user_stop`, `agent_timeout`, `max_turns_reached`, `external_stop`).
 
 If the session is stuck, end it manually from dashboard or API:
 
@@ -187,12 +187,15 @@ Before sharing to new users:
 
 ```bash
 ./scripts/seven-shadow-test.sh 2
+npm run soak:conversation -- --sessions=20 --turns=4 --json
 ```
 
 Expected:
 - `All Seven Shadow runs passed (2/2).`
+- conversation soak report shows `"pass": true`.
 
 ## Attach These Reports In Bug Issues
 
 1. Latest `.faye/reports/install-attempt-*.json`
 2. `.faye/reports/ui-kpi.json`
+3. Latest `.faye/reports/conversation-soak-*.json` for loop reliability/action issues

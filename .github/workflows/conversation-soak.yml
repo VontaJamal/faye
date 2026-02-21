@@ -1,0 +1,46 @@
+name: Conversation Soak
+
+on:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build App Runtime
+        run: npm run build:app
+
+      - name: Run Conversation Soak
+        run: npm run soak:conversation -- --sessions=20 --turns=4 --json
+
+      - name: Upload Soak Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversation-soak-${{ matrix.os }}-${{ github.run_id }}
+          path: .faye/reports/conversation-soak-*.json

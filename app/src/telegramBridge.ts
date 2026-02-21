@@ -249,6 +249,9 @@ function bridgeCommandKey(command: BridgeCommand, updateId: number): string {
   }
   if (command.type === "action") {
     const sessionPart = command.sessionId ? `:session:${command.sessionId}` : "";
+    if (command.nonce) {
+      return `action:${command.name}${sessionPart}:nonce:${command.nonce}`;
+    }
     return `action:${command.name}${sessionPart}:update:${updateId}`;
   }
   if (command.type === "activate_profile") {
@@ -507,7 +510,8 @@ export async function processUpdates(
           session_id: command.sessionId,
           action,
           update_id: update.update_id,
-          confirm: command.confirm === true
+          confirm: command.confirm === true,
+          nonce: command.nonce
         }).catch(() => undefined);
 
         const requiresConfirm = action === "listener_restart" || action === "bridge_restart";
@@ -523,7 +527,10 @@ export async function processUpdates(
           await emitLocalEventFn("bridge_action_blocked", {
             session_id: command.sessionId,
             action,
-            reason: "confirm_required"
+            reason: "confirm_required",
+            code: "confirm_required",
+            status: "needs_confirm",
+            nonce: command.nonce
           }).catch(() => undefined);
         } else {
           if (action === "health_summary") {
@@ -549,7 +556,10 @@ export async function processUpdates(
           await emitLocalEventFn("bridge_action_executed", {
             session_id: command.sessionId,
             action,
-            status: "ok"
+            status: "ok",
+            reason: "ok",
+            code: "ok",
+            nonce: command.nonce
           }).catch(() => undefined);
         }
       } else if (command.type === "speak") {
@@ -607,7 +617,10 @@ export async function processUpdates(
           session_id: command.sessionId,
           action: command.name,
           status: "error",
-          reason: messageText.slice(0, 160)
+          reason: "execution_failed",
+          code: "execution_failed",
+          detail: messageText.slice(0, 160),
+          nonce: command.nonce
         }).catch(() => undefined);
       } else {
         const sessionPart = command.type === "speak" && command.sessionId ? ` session=${command.sessionId}` : "";

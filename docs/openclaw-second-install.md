@@ -83,8 +83,10 @@ API checks:
 
 ```bash
 curl -s http://127.0.0.1:4587/v1/health | jq '.conversation'
+curl -s http://127.0.0.1:4587/v1/conversation/active | jq '.session'
 curl -s http://127.0.0.1:4587/v1/conversation/<session_id> | jq '.session'
-curl -s -X POST http://127.0.0.1:4587/v1/conversation/<session_id>/end -H 'Content-Type: application/json' -d '{"reason":"manual_terminated"}'
+curl -s "http://127.0.0.1:4587/v1/conversation/<session_id>/context?limit=8&includePending=true" | jq '.context'
+curl -s -X POST http://127.0.0.1:4587/v1/conversation/<session_id>/end -H 'Content-Type: application/json' -d '{"reason":"external_stop"}'
 ```
 
 ## 7. Collect adoption KPI snapshot

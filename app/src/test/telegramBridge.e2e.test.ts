@@ -42,15 +42,16 @@ function activateUpdate(updateId: number, profileId: string): TelegramUpdate {
 function actionUpdate(
   updateId: number,
   name: "health_summary" | "voice_test" | "listener_restart" | "bridge_restart",
-  options?: { sessionId?: string; confirm?: boolean }
+  options?: { sessionId?: string; confirm?: boolean; nonce?: string }
 ): TelegramUpdate {
   const sessionPart = options?.sessionId ? ` session=${options.sessionId}` : "";
   const confirmPart = options?.confirm === true ? " confirm=yes" : "";
+  const noncePart = options?.nonce ? ` nonce=${options.nonce}` : "";
   return {
     update_id: updateId,
     message: {
       message_id: updateId,
-      text: `#faye_action name=${name}${sessionPart}${confirmPart}`,
+      text: `#faye_action name=${name}${sessionPart}${confirmPart}${noncePart}`,
       chat: {
         id: 999
       }
@@ -318,7 +319,12 @@ test("telegram bridge executes low-risk action and sends deterministic action_re
   const localCalls: string[] = [];
   const localEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
 
-  await processUpdates("token", 999, [actionUpdate(4001, "voice_test", { sessionId: "s-action-1" })], makeLogger(), {
+  await processUpdates(
+    "token",
+    999,
+    [actionUpdate(4001, "voice_test", { sessionId: "s-action-1", nonce: "voice-1" })],
+    makeLogger(),
+    {
     callLocalApiFn: async (pathname) => {
       localCalls.push(pathname);
     },
@@ -332,7 +338,8 @@ test("telegram bridge executes low-risk action and sends deterministic action_re
     emitLocalEventFn: async (type, payload) => {
       localEvents.push({ type, payload });
     }
-  });
+    }
+  );
 
   assert.equal(localCalls.includes("/v1/speak/test"), true);
   assert.equal(
@@ -341,6 +348,10 @@ test("telegram bridge executes low-risk action and sends deterministic action_re
   );
   assert.equal(localEvents.some((event) => event.type === "bridge_action_requested"), true);
   assert.equal(localEvents.some((event) => event.type === "bridge_action_executed"), true);
+  assert.equal(
+    localEvents.some((event) => event.type === "bridge_action_requested" && event.payload.nonce === "voice-1"),
+    true
+  );
 });
 
 test("telegram bridge blocks impactful action without confirm", async () => {
@@ -403,4 +414,40 @@ test("telegram bridge executes confirmed impactful action exactly once across re
   await processUpdates("token", 999, [update], makeLogger(), deps);
 
   assert.equal(localCalls.filter((call) => call === "/v1/bridge/restart").length, 1);
+});
+
+test("telegram bridge action nonce deduplicates across distinct update ids", async () => {
+  const processed = new Set<string>();
+  const localCalls: string[] = [];
+
+  const deps = {
+    callLocalApiFn: async (pathname: string) => {
+      localCalls.push(pathname);
+    },
+    fetchLocalJsonFn: async () => ({ ok: true }),
+    sendTelegramFn: async () => undefined,
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async (key: string) => processed.has(key),
+    markProcessedFn: async (key: string) => {
+      processed.add(key);
+    },
+    emitLocalEventFn: async () => undefined
+  };
+
+  await processUpdates(
+    "token",
+    999,
+    [actionUpdate(5001, "listener_restart", { sessionId: "s-action-4", confirm: true, nonce: "op-44" })],
+    makeLogger(),
+    deps
+  );
+  await processUpdates(
+    "token",
+    999,
+    [actionUpdate(5002, "listener_restart", { sessionId: "s-action-4", confirm: true, nonce: "op-44" })],
+    makeLogger(),
+    deps
+  );
+
+  assert.equal(localCalls.filter((call) => call === "/v1/listener/restart").length, 1);
 });

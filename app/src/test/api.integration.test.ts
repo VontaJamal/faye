@@ -241,12 +241,14 @@ async function startHarness(): Promise<{
   store: FakeStore;
   events: EventHub;
   services: FakeServices;
+  stopRequestPath: string;
 }> {
   const store = new FakeStore();
   const events = new EventHub();
   const services = new FakeServices();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "faye-api-test-"));
   const uxKpiPath = path.join(tempDir, "ui-kpi.json");
+  const stopRequestPath = path.join(tempDir, "conversation-stop-request.json");
 
   const app = createApiServer({
     store: store as never,
@@ -254,7 +256,8 @@ async function startHarness(): Promise<{
     logger: fakeLogger as never,
     elevenLabs: fakeElevenLabs as never,
     services: services as never,
-    uxKpi: new UxKpiTracker({ reportPath: uxKpiPath })
+    uxKpi: new UxKpiTracker({ reportPath: uxKpiPath }),
+    conversationStopRequestPath: stopRequestPath
   });
 
   const server = http.createServer(app);
@@ -277,7 +280,8 @@ async function startHarness(): Promise<{
     },
     store,
     events,
-    services
+    services,
+    stopRequestPath
   };
 }
 
@@ -333,6 +337,11 @@ test("health endpoint returns bridge runtime field", async () => {
           };
         };
         activeSessions: number;
+        activeSessionId: string | null;
+        activeTurn: number | null;
+        lastTurnAt: string | null;
+        lastEndReason: string | null;
+        stopRequested: boolean;
         endReasons: Record<string, number>;
         sessions: Array<{ sessionId: string; state: string; turnLimit: number; turns: Array<{ turn: number; userText: string | null }> }>;
       };
@@ -359,6 +368,7 @@ test("health endpoint returns bridge runtime field", async () => {
     assert.equal(body.conversation.policy.turnPolicy.baseTurns, 8);
     assert.equal(body.conversation.policy.turnPolicy.extendBy, 4);
     assert.equal(body.conversation.policy.turnPolicy.hardCap, 16);
+    assert.equal(typeof body.conversation.stopRequested, "boolean");
     assert.equal(typeof body.conversation.endReasons, "object");
     assert.equal(Array.isArray(body.conversation.sessions), true);
     assert.equal(typeof body.onboarding.checklist.bridgeRequired, "boolean");
@@ -502,6 +512,10 @@ test("health conversation snapshot tracks multi-turn session context", async () 
     const body = health.body as {
       conversation: {
         activeSessions: number;
+        activeSessionId: string | null;
+        activeTurn: number | null;
+        lastTurnAt: string | null;
+        stopRequested: boolean;
         sessions: Array<{
           sessionId: string;
           state: string;
@@ -514,6 +528,10 @@ test("health conversation snapshot tracks multi-turn session context", async () 
 
     const session = body.conversation.sessions.find((item) => item.sessionId === "s-convo-1");
     assert.equal(body.conversation.activeSessions >= 1, true);
+    assert.equal(body.conversation.activeSessionId, "s-convo-1");
+    assert.equal(body.conversation.activeTurn, 1);
+    assert.equal(typeof body.conversation.lastTurnAt, "string");
+    assert.equal(body.conversation.stopRequested, false);
     assert.equal(session?.state, "awaiting_user");
     assert.equal(session?.turnLimit, 8);
     assert.equal(session?.totalTurns, 1);
@@ -559,6 +577,111 @@ test("conversation session API returns retained session details", async () => {
   }
 });
 
+test("conversation active API returns active session summary", async () => {
+  const harness = await startHarness();
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      "x-faye-local-token": "test-local-token"
+    };
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-active-1", heard: "faye arise" } })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "message_transcribed", payload: { session_id: "s-active-1", turn: 1, text: "hello" } })
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/conversation/active");
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      session: {
+        sessionId: string;
+        state: string;
+        totalTurns: number;
+      };
+    };
+
+    assert.equal(body.session.sessionId, "s-active-1");
+    assert.equal(body.session.state, "awaiting_assistant");
+    assert.equal(body.session.totalTurns, 1);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("conversation context API returns role-based context with filtering", async () => {
+  const harness = await startHarness();
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      "x-faye-local-token": "test-local-token"
+    };
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-context-api-1", heard: "faye arise" } })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "message_transcribed",
+        payload: { session_id: "s-context-api-1", turn: 1, text: "check status" }
+      })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "bridge_action_requested",
+        payload: { session_id: "s-context-api-1", action: "listener_restart", confirm: false }
+      })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "bridge_action_blocked",
+        payload: { session_id: "s-context-api-1", action: "listener_restart", reason: "confirm_required" }
+      })
+    });
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "bridge_speak_received",
+        payload: { session_id: "s-context-api-1", turn: 1, text: "Please confirm restart." }
+      })
+    });
+
+    const response = await requestJson(
+      harness.baseUrl,
+      "/v1/conversation/s-context-api-1/context?limit=8&includePending=false"
+    );
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      context: {
+        sessionId: string;
+        messages: Array<{ role: string; status?: string; action?: string }>;
+      };
+    };
+
+    assert.equal(body.context.sessionId, "s-context-api-1");
+    assert.equal(body.context.messages.some((item) => item.role === "user"), true);
+    assert.equal(body.context.messages.some((item) => item.status === "needs_confirm"), true);
+    assert.equal(body.context.messages.some((item) => item.action === "listener_restart"), true);
+    assert.equal(body.context.messages.some((item) => item.status === "pending"), false);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("conversation end API terminates active session", async () => {
   const harness = await startHarness();
   try {
@@ -588,9 +711,20 @@ test("conversation end API terminates active session", async () => {
         state: string;
         endReason: string;
       };
+      requestedReason: string;
+      endReason: string;
     };
     assert.equal(body.session.state, "ended");
-    assert.equal(body.session.endReason, "dashboard_manual_end");
+    assert.equal(body.session.endReason, "external_stop");
+    assert.equal(body.endReason, "external_stop");
+    assert.equal(body.requestedReason, "dashboard_manual_end");
+
+    const stopRequest = JSON.parse(await fs.readFile(harness.stopRequestPath, "utf8")) as {
+      sessionId: string;
+      reason: string;
+    };
+    assert.equal(stopRequest.sessionId, "s-end-api-1");
+    assert.equal(stopRequest.reason, "dashboard_manual_end");
 
     const missing = await requestJson(harness.baseUrl, "/v1/conversation/missing-session/end", {
       method: "POST",

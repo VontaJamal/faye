@@ -14,6 +14,7 @@
     "test:app": "npm run build:app && node --test dist/app/test/*.test.js",
     "test:ops": "node --test scripts/test/*.test.mjs",
     "test:dashboard": "playwright test -c playwright.dashboard.config.ts",
+    "soak:conversation": "node ./scripts/conversation-soak.mjs",
     "test": "npm run test:app && npm run test:ops",
     "canary": "./scripts/canary-smoke.sh",
     "security:check": "./scripts/security-check.sh",

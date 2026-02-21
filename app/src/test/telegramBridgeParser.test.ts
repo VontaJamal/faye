@@ -46,12 +46,13 @@ test("parses ping command", () => {
 });
 
 test("parses action command with confirmation", () => {
-  const command = parseBridgeCommand("#faye_action name=listener_restart session=s-1 confirm=yes");
+  const command = parseBridgeCommand("#faye_action name=listener_restart session=s-1 confirm=yes nonce=n-1");
   assert.deepEqual(command, {
     type: "action",
     name: "listener_restart",
     sessionId: "s-1",
-    confirm: true
+    confirm: true,
+    nonce: "n-1"
   });
 });
 
@@ -61,5 +62,16 @@ test("parses action command with plain-name payload", () => {
     type: "action",
     name: "voice_test",
     sessionId: "s-2"
+  });
+});
+
+test("parses action command JSON payload with nonce", () => {
+  const command = parseBridgeCommand('#faye_action {"name":"bridge_restart","session_id":"s-3","confirm":true,"nonce":"op-88"}');
+  assert.deepEqual(command, {
+    type: "action",
+    name: "bridge_restart",
+    sessionId: "s-3",
+    confirm: true,
+    nonce: "op-88"
   });
 });

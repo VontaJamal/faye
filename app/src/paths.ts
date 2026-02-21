@@ -16,6 +16,7 @@ export const LOCAL_EVENT_TOKEN_PATH = path.join(SECRETS_DIR, "faye-local-event-t
 export const BRIDGE_OFFSET_PATH = path.join(FAYE_STATE_DIR, "telegram-bridge-offset.txt");
 export const BRIDGE_PROCESSED_KEYS_PATH = path.join(FAYE_STATE_DIR, "telegram-bridge-processed-keys.json");
 export const BRIDGE_RUNTIME_STATUS_PATH = path.join(FAYE_STATE_DIR, "telegram-bridge-runtime.json");
+export const CONVERSATION_STOP_REQUEST_PATH = path.join(FAYE_STATE_DIR, "conversation-stop-request.json");
 
 export const DEFAULT_API_BASE_URL = "http://127.0.0.1:4587" as const;
 

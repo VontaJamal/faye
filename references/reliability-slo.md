@@ -83,3 +83,9 @@ Do not tag release unless all are true:
 - `npm audit --audit-level=high` passes
 - Manual bridge smoke test passes
 - Canary smoke workflow (`.github/workflows/hourly-canary.yml`) is green
+- Conversation soak report passes:
+  - `npm run soak:conversation -- --sessions=20 --turns=4 --json`
+  - `roundTrip.timeouts == 0`
+  - `bridgeSpokenError == 0`
+  - `completedSessions == requestedSessions`
+  - `conversation.activeSessions == 0`

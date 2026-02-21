@@ -121,11 +121,14 @@
 
       <section class="panel" aria-labelledby="conversation-title">
         <h2 id="conversation-title">Conversation Session</h2>
-        <p class="panel-intro">Track active conversation progress, retained turns, and end the session if recovery is needed.</p>
+        <p class="panel-intro">Track active conversation progress, inspect live retained context, and force-stop safely when recovery is needed.</p>
         <div id="conversation-state" class="conversation-state" aria-live="polite"></div>
+        <div id="conversation-badges" class="conversation-badges" aria-live="polite"></div>
         <ul id="conversation-turns" class="conversation-turns" aria-live="polite"></ul>
+        <h3 class="conversation-context-title">Live Context</h3>
+        <ul id="conversation-context" class="conversation-context" aria-live="polite"></ul>
         <div class="actions">
-          <button type="button" id="conversation-end" class="danger">End Active Session</button>
+          <button type="button" id="conversation-end" class="danger">Force Stop Session</button>
         </div>
       </section>
 
