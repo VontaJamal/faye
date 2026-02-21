@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import { EventHub } from "../events";
 
 test("event hub isolates listener failures during fanout", () => {
-  const hub = new EventHub();
+  const failures: Array<{ type: string; message: string }> = [];
+  const hub = new EventHub(({ error, event }) => {
+    failures.push({
+      type: event.type,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  });
   let received = 0;
 
   hub.subscribe(() => {
@@ -17,6 +23,9 @@ test("event hub isolates listener failures during fanout", () => {
   const published = hub.publish("wake_detected", { session_id: "s-1" });
   assert.equal(published.type, "wake_detected");
   assert.equal(received, 1);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.type, "wake_detected");
+  assert.equal(failures[0]?.message, "listener failed");
 });
 
 test("event hub retains most recent 100 events", () => {
