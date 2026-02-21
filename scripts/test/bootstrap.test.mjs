@@ -43,9 +43,16 @@ async function createFixtureRepo(baseDir) {
     "#!/usr/bin/env bash\nset -euo pipefail\necho install-ok\n",
     "utf8"
   );
+  await writeFile(
+    path.join(repoDir, "scripts", "install-shims.sh"),
+    "#!/usr/bin/env bash\nset -euo pipefail\necho shims-ok\n",
+    "utf8"
+  );
 
   const chmodResult = await runCommand("chmod", ["+x", "scripts/install.sh"], repoDir);
   assert.equal(chmodResult.code, 0);
+  const chmodShimsResult = await runCommand("chmod", ["+x", "scripts/install-shims.sh"], repoDir);
+  assert.equal(chmodShimsResult.code, 0);
 
   let result = await runCommand("git", ["init", "-b", "main"], repoDir);
   assert.equal(result.code, 0, result.stderr);

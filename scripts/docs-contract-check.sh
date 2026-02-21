@@ -18,6 +18,8 @@ required=(
   "scripts/install.sh"
   "scripts/preflight.sh"
   "scripts/bootstrap.sh"
+  "scripts/install-shims.sh"
+  "scripts/panic-reset.sh"
   "scripts/install-kpi.mjs"
   "scripts/canary-smoke.sh"
   "scripts/security-check.sh"
@@ -38,6 +40,7 @@ required=(
   "references/reliability-slo.md"
   "docs/distribution.md"
   "docs/openclaw-second-install.md"
+  "docs/public-alpha-kit.md"
   "docs/always-on-proof.md"
   "docs/burn-in.md"
   "docs/privacy.md"
@@ -47,6 +50,8 @@ required=(
   "docs/releases/v1.2.0-alpha.1.md"
   "SECURITY.md"
   "CONTRIBUTING.md"
+  "AGENT-QUICKSTART.md"
+  "agent-contract.json"
   ".github/ISSUE_TEMPLATE/bug-report.md"
   ".github/ISSUE_TEMPLATE/feature-request.md"
   ".github/ISSUE_TEMPLATE/config.yml"
@@ -68,6 +73,9 @@ grep -q "Seven Shadow" "$ROOT_DIR/README.md" || { echo "README missing Seven Sha
 grep -q "Telegram bridge" "$ROOT_DIR/README.md" || { echo "README missing Telegram bridge section"; exit 1; }
 grep -q "Seven Shadow System" "$ROOT_DIR/README.md" || { echo "README missing Seven Shadow System section"; exit 1; }
 grep -q "Contributing" "$ROOT_DIR/README.md" || { echo "README missing contributing section"; exit 1; }
+grep -q "Open Dashboard (short commands)" "$ROOT_DIR/README.md" || { echo "README missing short command dashboard section"; exit 1; }
+grep -q "Panic Stop vs Factory Reset" "$ROOT_DIR/README.md" || { echo "README missing panic/reset section"; exit 1; }
+grep -q "No-risk recovery for new users" "$ROOT_DIR/README.md" || { echo "README missing no-risk recovery section"; exit 1; }
 
 node - <<'NODE'
 const fs = require("fs");

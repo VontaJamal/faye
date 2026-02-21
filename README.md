@@ -67,6 +67,28 @@ Use the canonical OpenClaw -> Faye onboarding path:
 2. `./scripts/faye setup`
 3. Open [http://127.0.0.1:4587](http://127.0.0.1:4587)
 
+## Open Dashboard (short commands)
+
+Install now sets up command shims in `~/.local/bin` so new users can run Faye from anywhere:
+
+```bash
+faye open
+faye status
+```
+
+One-word aliases also work:
+
+```bash
+faye-open
+faye-status
+```
+
+If your shell cannot find `faye`, run:
+
+```bash
+./scripts/install-shims.sh
+```
+
 ## Public Alpha Kit
 
 For onboarding other people quickly:
@@ -84,6 +106,10 @@ For onboarding other people quickly:
 
 ## Everyday Commands
 
+- Open dashboard: `faye open` or `faye-open`
+- System status: `faye status` or `faye-status`
+- Panic stop: `faye panic --confirm "PANIC STOP"` or `faye-panic --confirm "PANIC STOP"`
+- Factory reset: `faye reset --confirm "FACTORY RESET"` or `faye-reset --confirm "FACTORY RESET"`
 - Preflight checks: `./scripts/preflight.sh`
 - Install: `./scripts/install.sh`
 - Setup/update: `./scripts/faye setup`
@@ -95,6 +121,45 @@ For onboarding other people quickly:
 - List profiles: `./scripts/faye profile list`
 - Speak test: `./scripts/speak.sh "Hello from Faye"`
 - One-command demo: `npm run demo`
+
+## Panic Stop vs Factory Reset
+
+Use these when debugging or when onboarding gets stuck:
+
+1. `Panic Stop`:
+- Stops listener + bridge.
+- Keeps dashboard online so you can recover quickly.
+- Clears volatile runtime files only.
+- Run:
+```bash
+faye panic --confirm "PANIC STOP"
+```
+
+2. `Factory Reset`:
+- Archives diagnostics first.
+- Wipes config/secrets/runtime/reports for a clean start.
+- Stops listener + bridge + dashboard.
+- Run:
+```bash
+faye reset --confirm "FACTORY RESET"
+```
+
+Dashboard includes the same controls in the **Recovery & Panic** panel.
+
+## No-risk recovery for new users
+
+If anything feels broken, you are safe to panic-stop or factory-reset and try again.
+
+Recommended reset loop:
+
+1. `faye panic --confirm "PANIC STOP"`
+2. If still broken: `faye reset --confirm "FACTORY RESET"`
+3. Re-run install/setup:
+```bash
+./scripts/install.sh
+faye setup
+faye open
+```
 
 ## Always-On Services
 

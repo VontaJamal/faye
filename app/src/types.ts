@@ -89,6 +89,47 @@ export const SetupInputSchema = z.object({
   eventTransport: z.enum(["local", "hybrid"]).default("hybrid")
 });
 
+export const SystemConfirmationSchema = z.string().min(1).max(80);
+
+export const PanicStopRequestSchema = z.object({
+  confirmation: SystemConfirmationSchema,
+  reason: z.string().min(1).max(120).optional()
+});
+
+export const FactoryResetRequestSchema = z.object({
+  confirmation: SystemConfirmationSchema,
+  reason: z.string().min(1).max(120).optional()
+});
+
+export const SystemRecoveryActionSchema = z.enum(["panic-stop", "factory-reset"]);
+
+export const SystemRecoveryServiceResultSchema = z.object({
+  code: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string()
+});
+
+export const SystemRecoveryResultSchema = z.object({
+  schemaVersion: z.literal(1),
+  action: SystemRecoveryActionSchema,
+  requestedAt: z.string().datetime(),
+  completedAt: z.string().datetime(),
+  confirmationMatched: z.boolean(),
+  endedSessionId: z.string().min(1).max(120).nullable(),
+  stopRequestWritten: z.boolean(),
+  dashboardKeptRunning: z.boolean(),
+  archivePath: z.string().min(1).nullable(),
+  clearedRuntimeFiles: z.array(z.string().min(1)).default([]),
+  wipedPaths: z.array(z.string().min(1)).default([]),
+  stoppedServices: z.object({
+    listener: SystemRecoveryServiceResultSchema.optional(),
+    bridge: SystemRecoveryServiceResultSchema.optional(),
+    dashboard: SystemRecoveryServiceResultSchema.optional()
+  }),
+  notes: z.array(z.string().min(1).max(240)).default([]),
+  errors: z.array(z.string().min(1).max(280)).default([])
+});
+
 export const LocalIngestEventSchema = z.object({
   type: z.enum([
     "wake_detected",
@@ -102,7 +143,11 @@ export const LocalIngestEventSchema = z.object({
     "bridge_spoken",
     "bridge_action_requested",
     "bridge_action_executed",
-    "bridge_action_blocked"
+    "bridge_action_blocked",
+    "system_panic_stop_requested",
+    "system_panic_stop_completed",
+    "system_factory_reset_requested",
+    "system_factory_reset_completed"
   ]),
   payload: z.record(z.unknown()).default({})
 });
@@ -223,6 +268,11 @@ export type ProfileCreateInput = z.infer<typeof ProfileCreateInputSchema>;
 export type ProfilePatchInput = z.infer<typeof ProfilePatchInputSchema>;
 export type SpeakTestInput = z.infer<typeof SpeakTestInputSchema>;
 export type SetupInput = z.infer<typeof SetupInputSchema>;
+export type PanicStopRequest = z.infer<typeof PanicStopRequestSchema>;
+export type FactoryResetRequest = z.infer<typeof FactoryResetRequestSchema>;
+export type SystemRecoveryAction = z.infer<typeof SystemRecoveryActionSchema>;
+export type SystemRecoveryServiceResult = z.infer<typeof SystemRecoveryServiceResultSchema>;
+export type SystemRecoveryResult = z.infer<typeof SystemRecoveryResultSchema>;
 export type LocalIngestEvent = z.infer<typeof LocalIngestEventSchema>;
 export type BridgeActionName = z.infer<typeof BridgeActionNameSchema>;
 export type BridgeActionNonce = z.infer<typeof BridgeActionNonceSchema>;

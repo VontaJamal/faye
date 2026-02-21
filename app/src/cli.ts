@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +13,7 @@ import {
   DEFAULT_ELEVENLABS_KEY_PATH,
   DEFAULT_TELEGRAM_TOKEN_PATH,
   LEGACY_CONFIG_PATH,
+  REPO_ROOT,
   RUNTIME_CONFIG_PATH
 } from "./paths";
 import {
@@ -29,6 +31,16 @@ interface ParsedArgs {
   positionals: string[];
   flags: Map<string, string | true>;
 }
+
+interface SpawnResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+const DASHBOARD_URL = "http://127.0.0.1:4587";
+const PANIC_STOP_CONFIRMATION = "PANIC STOP";
+const FACTORY_RESET_CONFIRMATION = "FACTORY RESET";
 
 function parseArgs(argv: string[]): ParsedArgs {
   const positionals: string[] = [];
@@ -75,6 +87,60 @@ async function prompt(question: string, fallback?: string): Promise<string> {
     return fallback;
   }
   return answer;
+}
+
+async function spawnCommand(command: string, args: string[], options?: { cwd?: string; stdio?: "ignore" | "pipe" }): Promise<SpawnResult> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: options?.cwd,
+      stdio: ["ignore", options?.stdio ?? "pipe", options?.stdio ?? "pipe"]
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    if (child.stdout) {
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+    }
+
+    if (child.stderr) {
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+    }
+
+    child.on("error", (error) => {
+      resolve({
+        code: 1,
+        stdout,
+        stderr: error.message
+      });
+    });
+
+    child.on("close", (code) => {
+      resolve({
+        code: code ?? 1,
+        stdout,
+        stderr
+      });
+    });
+  });
+}
+
+async function openDashboard(url: string): Promise<{ opened: boolean; method: string }> {
+  if (process.platform === "darwin") {
+    const result = await spawnCommand("open", [url], { stdio: "ignore" });
+    return { opened: result.code === 0, method: "open" };
+  }
+
+  if (process.platform === "linux") {
+    const result = await spawnCommand("xdg-open", [url], { stdio: "ignore" });
+    return { opened: result.code === 0, method: "xdg-open" };
+  }
+
+  return { opened: false, method: "manual" };
 }
 
 async function ensureSetup(store: ConfigStore, args: ParsedArgs): Promise<void> {
@@ -288,6 +354,97 @@ async function doctorCommand(store: ConfigStore): Promise<void> {
   console.log(JSON.stringify(report, null, 2));
 }
 
+async function statusCommand(store: ConfigStore, args: ParsedArgs): Promise<void> {
+  const doctor = await runDoctor(store);
+  const services = new ServiceControl(createLogger());
+  const listener = await services.listenerStatus();
+  const dashboard = await services.dashboardStatus();
+  const bridge = await services.bridgeStatus();
+  const activeProfile = store.getActiveProfile();
+  const bridgeRequired = Boolean(activeProfile.telegramBotTokenPath && activeProfile.telegramChatId);
+  const servicesOk = listener.code === 0 && dashboard.code === 0 && (!bridgeRequired || bridge.code === 0);
+  const ok = doctor.ok && servicesOk;
+
+  const payload = {
+    ok,
+    doctor,
+    services: {
+      listener,
+      dashboard,
+      bridge,
+      bridgeRequired,
+      servicesOk
+    }
+  };
+
+  if (hasFlag(args, "json")) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log(`Status: ${ok ? "PASS" : "ATTENTION"}`);
+  console.log(`Dashboard: ${DASHBOARD_URL}`);
+  console.log(`Doctor: ${doctor.ok ? "ok" : "not ok"}`);
+  console.log(`Listener: ${listener.code === 0 ? "running" : "stopped"}`);
+  console.log(`Dashboard service: ${dashboard.code === 0 ? "running" : "stopped"}`);
+  console.log(`Bridge: ${bridge.code === 0 ? "running" : bridgeRequired ? "required but stopped" : "optional/off"}`);
+}
+
+async function openCommand(args: ParsedArgs): Promise<void> {
+  if (hasFlag(args, "print")) {
+    console.log(DASHBOARD_URL);
+    return;
+  }
+
+  const opened = await openDashboard(DASHBOARD_URL);
+  if (hasFlag(args, "json")) {
+    console.log(
+      JSON.stringify(
+        {
+          url: DASHBOARD_URL,
+          opened: opened.opened,
+          method: opened.method
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  if (opened.opened) {
+    console.log(`Opened dashboard: ${DASHBOARD_URL}`);
+  } else {
+    console.log(`Open dashboard manually: ${DASHBOARD_URL}`);
+  }
+}
+
+async function runRecoveryScript(mode: "panic-stop" | "factory-reset", args: ParsedArgs): Promise<void> {
+  const confirmation = getFlag(args, "confirm") ?? (hasFlag(args, "yes") ? (mode === "panic-stop" ? PANIC_STOP_CONFIRMATION : FACTORY_RESET_CONFIRMATION) : "");
+  if (!confirmation) {
+    throw new Error(mode === "panic-stop" ? "E_PANIC_CONFIRMATION_REQUIRED" : "E_FACTORY_RESET_CONFIRMATION_REQUIRED");
+  }
+
+  const scriptPath = path.join(REPO_ROOT, "scripts", "panic-reset.sh");
+  const scriptArgs = [scriptPath, mode, "--confirm", confirmation, "--reason", getFlag(args, "reason") ?? (mode === "panic-stop" ? "cli_panic_stop" : "cli_factory_reset"), "--json"];
+  const result = await spawnCommand("/usr/bin/env", ["bash", ...scriptArgs], { cwd: REPO_ROOT });
+
+  if (result.code !== 0) {
+    const message = result.stderr.trim() || result.stdout.trim() || "E_SYSTEM_RECOVERY_FAILED";
+    throw new Error(message);
+  }
+
+  const parsed = JSON.parse(result.stdout || "{}") as { ok?: boolean; result?: unknown };
+  if (hasFlag(args, "json")) {
+    console.log(JSON.stringify(parsed, null, 2));
+    return;
+  }
+
+  const outcome = parsed.ok === true ? "completed" : "completed with warnings";
+  console.log(`${mode === "panic-stop" ? "Panic stop" : "Factory reset"} ${outcome}.`);
+  console.log(`Dashboard URL: ${DASHBOARD_URL}`);
+}
+
 function printPreflightReport(report: PreflightReport): void {
   console.log(`Preflight status: ${report.ok ? "PASS" : "FAIL"}`);
   console.log(`Timestamp: ${report.timestamp}`);
@@ -455,6 +612,10 @@ function printHelp(): void {
 Faye CLI
 
 Commands:
+  open [--print] [--json]
+  status [--json]
+  panic --confirm "PANIC STOP" [--reason ...] [--json]
+  reset --confirm "FACTORY RESET" [--reason ...] [--json]
   preflight [--json]
   setup [--non-interactive --api-key ... --voice-id ... --voice-name ... --wake-word ...]
   profile list
@@ -482,6 +643,21 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "open") {
+    await openCommand(args);
+    return;
+  }
+
+  if (command === "panic") {
+    await runRecoveryScript("panic-stop", args);
+    return;
+  }
+
+  if (command === "reset") {
+    await runRecoveryScript("factory-reset", args);
+    return;
+  }
+
   const logger = createLogger();
   const store = new ConfigStore(logger);
   await store.init();
@@ -498,6 +674,11 @@ async function main(): Promise<void> {
 
   if (command === "doctor") {
     await doctorCommand(store);
+    return;
+  }
+
+  if (command === "status") {
+    await statusCommand(store, args);
     return;
   }
 

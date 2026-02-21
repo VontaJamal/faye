@@ -48,6 +48,15 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+async function exists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 class FakeStore {
   private config: RuntimeConfig;
   private readonly localToken = "test-local-token";
@@ -196,7 +205,11 @@ class FakeStore {
 class FakeServices {
   listenerRestarts = 0;
   bridgeRestarts = 0;
+  listenerStops = 0;
+  bridgeStops = 0;
+  dashboardStops = 0;
   bridgeStatusCode = 0;
+  stopCode = 0;
 
   async listenerStatus(): Promise<{ code: number; stdout: string; stderr: string }> {
     return { code: 0, stdout: "listener: running", stderr: "" };
@@ -223,6 +236,33 @@ class FakeServices {
     this.bridgeRestarts += 1;
     return { code: 0, stdout: "bridge restarted", stderr: "" };
   }
+
+  async stopListener(): Promise<{ code: number; stdout: string; stderr: string }> {
+    this.listenerStops += 1;
+    return {
+      code: this.stopCode,
+      stdout: this.stopCode === 0 ? "listener stopped" : "",
+      stderr: this.stopCode === 0 ? "" : "listener stop failed"
+    };
+  }
+
+  async stopBridge(): Promise<{ code: number; stdout: string; stderr: string }> {
+    this.bridgeStops += 1;
+    return {
+      code: this.stopCode,
+      stdout: this.stopCode === 0 ? "bridge stopped" : "",
+      stderr: this.stopCode === 0 ? "" : "bridge stop failed"
+    };
+  }
+
+  async stopDashboard(): Promise<{ code: number; stdout: string; stderr: string }> {
+    this.dashboardStops += 1;
+    return {
+      code: this.stopCode,
+      stdout: this.stopCode === 0 ? "dashboard stopped" : "",
+      stderr: this.stopCode === 0 ? "" : "dashboard stop failed"
+    };
+  }
 }
 
 const fakeLogger = {
@@ -242,6 +282,14 @@ async function startHarness(): Promise<{
   events: EventHub;
   services: FakeServices;
   stopRequestPath: string;
+  systemPaths: {
+    openclawDir: string;
+    secretsDir: string;
+    stateDir: string;
+    runtimeConfigPath: string;
+    legacyConfigPath: string;
+    reportsDir: string;
+  };
 }> {
   const store = new FakeStore();
   const events = new EventHub();
@@ -249,6 +297,16 @@ async function startHarness(): Promise<{
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "faye-api-test-"));
   const uxKpiPath = path.join(tempDir, "ui-kpi.json");
   const stopRequestPath = path.join(tempDir, "conversation-stop-request.json");
+  const stateDir = path.join(tempDir, "state");
+  const secretsDir = path.join(tempDir, "secrets");
+  const reportsDir = path.join(tempDir, "reports");
+  const openclawDir = path.join(tempDir, "openclaw");
+  const runtimeConfigPath = path.join(tempDir, "faye-runtime-config.json");
+  const legacyConfigPath = path.join(tempDir, "faye-voice-config.json");
+  await fs.mkdir(stateDir, { recursive: true });
+  await fs.mkdir(secretsDir, { recursive: true });
+  await fs.mkdir(reportsDir, { recursive: true });
+  await fs.mkdir(openclawDir, { recursive: true });
 
   const app = createApiServer({
     store: store as never,
@@ -257,7 +315,15 @@ async function startHarness(): Promise<{
     elevenLabs: fakeElevenLabs as never,
     services: services as never,
     uxKpi: new UxKpiTracker({ reportPath: uxKpiPath }),
-    conversationStopRequestPath: stopRequestPath
+    conversationStopRequestPath: stopRequestPath,
+    systemPaths: {
+      openclawDir,
+      secretsDir,
+      stateDir,
+      runtimeConfigPath,
+      legacyConfigPath,
+      reportsDir
+    }
   });
 
   const server = http.createServer(app);
@@ -281,7 +347,15 @@ async function startHarness(): Promise<{
     store,
     events,
     services,
-    stopRequestPath
+    stopRequestPath,
+    systemPaths: {
+      openclawDir,
+      secretsDir,
+      stateDir,
+      runtimeConfigPath,
+      legacyConfigPath,
+      reportsDir
+    }
   };
 }
 
@@ -899,6 +973,114 @@ test("bridge restart endpoint calls service", async () => {
 
     assert.equal(response.status, 200);
     assert.equal(harness.services.bridgeRestarts, 1);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("panic-stop endpoint requires typed confirmation", async () => {
+  const harness = await startHarness();
+  try {
+    const response = await requestJson(harness.baseUrl, "/v1/system/panic-stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmation: "not it"
+      })
+    });
+
+    assert.equal(response.status, 400);
+    const body = response.body as { error: string };
+    assert.equal(body.error, "E_PANIC_CONFIRMATION_REQUIRED");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("panic-stop endpoint stops listener and bridge while keeping dashboard running", async () => {
+  const harness = await startHarness();
+  try {
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-faye-local-token": "test-local-token"
+      },
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-panic-1", heard: "faye arise" } })
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/system/panic-stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmation: "PANIC STOP",
+        reason: "integration_panic"
+      })
+    });
+
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      ok: boolean;
+      result: {
+        action: string;
+        endedSessionId: string | null;
+        dashboardKeptRunning: boolean;
+      };
+    };
+
+    assert.equal(body.ok, true);
+    assert.equal(body.result.action, "panic-stop");
+    assert.equal(body.result.endedSessionId, "s-panic-1");
+    assert.equal(body.result.dashboardKeptRunning, true);
+    assert.equal(harness.services.listenerStops, 1);
+    assert.equal(harness.services.bridgeStops, 1);
+    assert.equal(harness.services.dashboardStops, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("factory-reset endpoint archives diagnostics then wipes state", async () => {
+  const harness = await startHarness();
+  try {
+    await fs.writeFile(harness.systemPaths.runtimeConfigPath, JSON.stringify({ ok: true }), "utf8");
+    await fs.writeFile(harness.systemPaths.legacyConfigPath, JSON.stringify({ ok: true }), "utf8");
+    await fs.writeFile(path.join(harness.systemPaths.secretsDir, "elevenlabs-api-key.txt"), "test-key\n", "utf8");
+    await fs.writeFile(path.join(harness.systemPaths.stateDir, "telegram-bridge-runtime.json"), "{}", "utf8");
+    await fs.writeFile(path.join(harness.systemPaths.reportsDir, "ui-kpi.json"), "{}", "utf8");
+
+    const response = await requestJson(harness.baseUrl, "/v1/system/factory-reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmation: "FACTORY RESET",
+        reason: "integration_factory_reset"
+      })
+    });
+
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      ok: boolean;
+      result: {
+        action: string;
+        archivePath: string | null;
+        wipedPaths: string[];
+      };
+    };
+
+    assert.equal(body.ok, true);
+    assert.equal(body.result.action, "factory-reset");
+    assert.equal(typeof body.result.archivePath, "string");
+    assert.equal(Array.isArray(body.result.wipedPaths), true);
+    assert.equal(await exists(String(body.result.archivePath)), true);
+    assert.equal(await exists(harness.systemPaths.runtimeConfigPath), false);
+    assert.equal(await exists(harness.systemPaths.legacyConfigPath), false);
+    assert.equal(await exists(harness.systemPaths.secretsDir), false);
+    assert.equal(await exists(harness.systemPaths.stateDir), false);
+    assert.equal(await exists(harness.systemPaths.reportsDir), false);
+    assert.equal(harness.services.listenerStops, 1);
+    assert.equal(harness.services.bridgeStops, 1);
+    assert.equal(harness.services.dashboardStops, 1);
   } finally {
     await harness.close();
   }

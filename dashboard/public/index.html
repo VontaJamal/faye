@@ -132,6 +132,35 @@
         </div>
       </section>
 
+      <section class="panel" aria-labelledby="recovery-title">
+        <h2 id="recovery-title">Recovery & Panic</h2>
+        <p class="panel-intro">When something feels off, use a safe stop or a full clean reset. Panic Stop keeps the dashboard online. Factory Reset starts over from zero after archiving diagnostics.</p>
+
+        <div class="recovery-stack">
+          <article class="recovery-card">
+            <h3>Panic Stop</h3>
+            <p>Stops listener + bridge and clears runtime session files. Dashboard stays up so you can recover immediately.</p>
+            <label>
+              Type <code>PANIC STOP</code> to confirm
+              <input id="panic-confirmation" type="text" autocomplete="off" />
+            </label>
+            <button type="button" id="panic-stop-button" class="danger">Panic Stop</button>
+          </article>
+
+          <article class="recovery-card factory">
+            <h3>Factory Reset</h3>
+            <p>Archives diagnostics, wipes config/secrets/runtime/reports, then stops listener, bridge, and dashboard.</p>
+            <label>
+              Type <code>FACTORY RESET</code> to confirm
+              <input id="factory-reset-confirmation" type="text" autocomplete="off" />
+            </label>
+            <button type="button" id="factory-reset-button" class="danger">Factory Reset</button>
+          </article>
+        </div>
+
+        <p id="recovery-status" class="status"></p>
+      </section>
+
       <section class="panel" aria-labelledby="events-title">
         <h2 id="events-title">Live Event Stream</h2>
         <p class="panel-intro">Recent activity in plain language so you can track wake detection, learned wake phrases, and spoken replies. Add <code>?debug=1</code> to the URL for raw developer event codes.</p>

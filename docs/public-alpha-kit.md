@@ -44,6 +44,12 @@ Success signal:
 
 3. Open dashboard:
 
+```bash
+faye open
+```
+
+Fallback URL:
+
 [http://127.0.0.1:4587](http://127.0.0.1:4587)
 
 4. Verify system health:
@@ -114,6 +120,13 @@ Most common fixes:
 4. Attach both reports when filing issues:
    - `.faye/reports/install-attempt-*.json`
    - `.faye/reports/ui-kpi.json`
+
+No-risk reset options:
+
+```bash
+faye panic --confirm "PANIC STOP"
+faye reset --confirm "FACTORY RESET"
+```
 
 ## Share With New Users
 

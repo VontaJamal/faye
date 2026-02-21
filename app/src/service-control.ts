@@ -68,6 +68,14 @@ export class ServiceControl {
     return result;
   }
 
+  async stopListener(): Promise<CommandResult> {
+    const result = await this.runShellFn(this.listenerScript, ["stop"]);
+    if (result.code !== 0) {
+      this.logger.warn("LISTENER_STOP_FAILED", "Listener stop failed", result);
+    }
+    return result;
+  }
+
   async restartDashboard(): Promise<CommandResult> {
     const result = await this.runShellFn(this.dashboardScript, ["restart"]);
     if (result.code !== 0) {
@@ -76,10 +84,26 @@ export class ServiceControl {
     return result;
   }
 
+  async stopDashboard(): Promise<CommandResult> {
+    const result = await this.runShellFn(this.dashboardScript, ["stop"]);
+    if (result.code !== 0) {
+      this.logger.warn("DASHBOARD_STOP_FAILED", "Dashboard stop failed", result);
+    }
+    return result;
+  }
+
   async restartBridge(): Promise<CommandResult> {
     const result = await this.runShellFn(this.bridgeScript, ["restart"]);
     if (result.code !== 0) {
       this.logger.warn("BRIDGE_RESTART_FAILED", "Telegram bridge restart failed", result);
+    }
+    return result;
+  }
+
+  async stopBridge(): Promise<CommandResult> {
+    const result = await this.runShellFn(this.bridgeScript, ["stop"]);
+    if (result.code !== 0) {
+      this.logger.warn("BRIDGE_STOP_FAILED", "Telegram bridge stop failed", result);
     }
     return result;
   }

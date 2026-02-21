@@ -201,6 +201,38 @@ interface OnboardingSummary {
   lastVoiceTestOk: boolean | null;
 }
 
+interface SystemRecoveryServiceResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+interface SystemRecoveryResult {
+  schemaVersion: 1;
+  action: "panic-stop" | "factory-reset";
+  requestedAt: string;
+  completedAt: string;
+  confirmationMatched: boolean;
+  endedSessionId: string | null;
+  stopRequestWritten: boolean;
+  dashboardKeptRunning: boolean;
+  archivePath: string | null;
+  clearedRuntimeFiles: string[];
+  wipedPaths: string[];
+  stoppedServices: {
+    listener?: SystemRecoveryServiceResult;
+    bridge?: SystemRecoveryServiceResult;
+    dashboard?: SystemRecoveryServiceResult;
+  };
+  notes: string[];
+  errors: string[];
+}
+
+interface SystemRecoveryResponse {
+  ok: boolean;
+  result: SystemRecoveryResult;
+}
+
 interface HealthResponse {
   ok: boolean;
   doctor?: {
@@ -254,6 +286,9 @@ const FIELD_MAX: Record<SetupFieldName, number> = {
   telegramChatId: 64
 };
 
+const PANIC_STOP_CONFIRMATION = "PANIC STOP";
+const FACTORY_RESET_CONFIRMATION = "FACTORY RESET";
+
 const DEBUG_MODE = new URLSearchParams(window.location.search).get("debug") === "1";
 
 const EVENT_LABELS: Record<string, string> = {
@@ -268,7 +303,11 @@ const EVENT_LABELS: Record<string, string> = {
   bridge_spoken: "Agent Reply Played",
   bridge_action_requested: "Action Requested",
   bridge_action_executed: "Action Completed",
-  bridge_action_blocked: "Action Needs Confirmation"
+  bridge_action_blocked: "Action Needs Confirmation",
+  system_panic_stop_requested: "Panic Stop Requested",
+  system_panic_stop_completed: "Panic Stop Completed",
+  system_factory_reset_requested: "Factory Reset Requested",
+  system_factory_reset_completed: "Factory Reset Completed"
 };
 
 const setupStatus = document.querySelector<HTMLParagraphElement>("#setup-status");
@@ -284,6 +323,11 @@ const conversationBadges = document.querySelector<HTMLDivElement>("#conversation
 const conversationTurns = document.querySelector<HTMLUListElement>("#conversation-turns");
 const conversationContext = document.querySelector<HTMLUListElement>("#conversation-context");
 const conversationEnd = document.querySelector<HTMLButtonElement>("#conversation-end");
+const panicConfirmationInput = document.querySelector<HTMLInputElement>("#panic-confirmation");
+const factoryResetConfirmationInput = document.querySelector<HTMLInputElement>("#factory-reset-confirmation");
+const panicStopButton = document.querySelector<HTMLButtonElement>("#panic-stop-button");
+const factoryResetButton = document.querySelector<HTMLButtonElement>("#factory-reset-button");
+const recoveryStatus = document.querySelector<HTMLParagraphElement>("#recovery-status");
 
 let latestHealth: HealthResponse | null = null;
 let activeConversationSessionId: string | null = null;
@@ -294,6 +338,14 @@ function setStatus(message: string, error = false): void {
   }
   setupStatus.textContent = message;
   setupStatus.classList.toggle("error", error);
+}
+
+function setRecoveryStatus(message: string, error = false): void {
+  if (!recoveryStatus) {
+    return;
+  }
+  recoveryStatus.textContent = message;
+  recoveryStatus.classList.toggle("error", error);
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -401,11 +453,15 @@ function humanizeCode(code: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function displayCode(code: string): string {
+  return DEBUG_MODE ? code : humanizeCode(code);
+}
+
 function eventTitle(type: string): string {
   if (DEBUG_MODE) {
     return type;
   }
-  return EVENT_LABELS[type] ?? humanizeCode(type);
+  return EVENT_LABELS[type] ?? displayCode(type);
 }
 
 function listenerStatusSummary(status: string): string {
@@ -415,7 +471,7 @@ function listenerStatusSummary(status: string): string {
     conversation_loop_extended: "Conversation session extended with extra turns.",
     conversation_loop_ended: "Conversation session ended."
   };
-  return map[status] ?? `Listener status: ${humanizeCode(status)}.`;
+  return map[status] ?? `Listener status: ${displayCode(status)}.`;
 }
 
 function eventSummary(event: StreamEvent): string {
@@ -478,7 +534,7 @@ function eventSummary(event: StreamEvent): string {
       const turn = asFiniteNumber(payload.turn);
       const waitResult = asNonEmptyString(payload.wait_result);
       if (turn !== null && waitResult) {
-        return `Completed turn ${turn} with result "${humanizeCode(waitResult)}".`;
+        return `Completed turn ${turn} with result "${displayCode(waitResult)}".`;
       }
       if (turn !== null) {
         return `Completed turn ${turn}.`;
@@ -491,23 +547,39 @@ function eventSummary(event: StreamEvent): string {
     case "bridge_spoken": {
       const status = asNonEmptyString(payload.status);
       if (status) {
-        return `Agent voice reply finished with status "${humanizeCode(status)}".`;
+        return `Agent voice reply finished with status "${displayCode(status)}".`;
       }
       return "Agent voice reply was played.";
     }
     case "bridge_action_requested": {
       const name = asNonEmptyString(payload.name);
-      return name ? `Requested action "${humanizeCode(name)}".` : "Requested an action.";
+      return name ? `Requested action "${displayCode(name)}".` : "Requested an action.";
     }
     case "bridge_action_executed": {
       const name = asNonEmptyString(payload.name);
-      return name ? `Completed action "${humanizeCode(name)}".` : "Completed an action.";
+      return name ? `Completed action "${displayCode(name)}".` : "Completed an action.";
     }
     case "bridge_action_blocked": {
       const name = asNonEmptyString(payload.name);
       return name
-        ? `Action "${humanizeCode(name)}" is waiting for confirmation.`
+        ? `Action "${displayCode(name)}" is waiting for confirmation.`
         : "Action is waiting for confirmation.";
+    }
+    case "system_panic_stop_requested":
+      return "Panic Stop requested. Listener and bridge are being halted.";
+    case "system_panic_stop_completed": {
+      const ok = payload.ok === true;
+      return ok
+        ? "Panic Stop completed. You can restart services when ready."
+        : "Panic Stop completed with warnings. Check status before continuing.";
+    }
+    case "system_factory_reset_requested":
+      return "Factory Reset requested. Preparing archive and clean reset.";
+    case "system_factory_reset_completed": {
+      const ok = payload.ok === true;
+      return ok
+        ? "Factory Reset completed. Start install flow again from scratch."
+        : "Factory Reset completed with warnings. Review recovery status.";
     }
     default:
       return "Activity updated.";
@@ -755,9 +827,9 @@ function contextMeta(message: ConversationContextMessage): string {
   const role = message.role.toUpperCase();
   const at = formatTimestamp(message.at);
   const turn = typeof message.turn === "number" ? ` · turn ${message.turn}` : "";
-  const status = message.status ? ` · ${message.status}` : "";
-  const action = message.action ? ` · ${message.action}` : "";
-  const code = message.code ? ` · ${message.code}` : "";
+  const status = message.status ? ` · ${displayCode(message.status)}` : "";
+  const action = message.action ? ` · ${displayCode(message.action)}` : "";
+  const code = message.code ? ` · ${displayCode(message.code)}` : "";
   return `${role} · ${at}${turn}${status}${action}${code}`;
 }
 
@@ -834,7 +906,7 @@ function renderConversationPanel(health: HealthResponse): void {
     `Retained sessions: <strong>${snapshot.retainedSessions}</strong>`,
     `Policy: <strong>${snapshot.policy.turnPolicy.baseTurns}+${snapshot.policy.turnPolicy.extendBy}</strong> up to <strong>${snapshot.policy.turnPolicy.hardCap}</strong> turns`,
     `Context TTL: <strong>${Math.round(snapshot.policy.ttlMs / 60000)} min</strong>`,
-    `Last end reason: <strong>${snapshot.lastEndReason ?? "n/a"}</strong>`
+    `Last end reason: <strong>${snapshot.lastEndReason ? displayCode(snapshot.lastEndReason) : "n/a"}</strong>`
   ]
     .map((line) => `<p>${line}</p>`)
     .join("");
@@ -857,7 +929,7 @@ function renderConversationPanel(health: HealthResponse): void {
     `<p><strong>Retained turns</strong>: ${active.retainedTurns}</p>`,
     `<p><strong>Last turn</strong>: ${formatTimestamp(active.lastTurnAt)}</p>`,
     `<p><strong>Expires</strong>: ${formatTimestamp(active.expiresAt)} (${Math.ceil(active.expiresInMs / 1000)}s)</p>`,
-    active.endReason ? `<p><strong>End reason</strong>: ${active.endReason}</p>` : ""
+    active.endReason ? `<p><strong>End reason</strong>: ${displayCode(active.endReason)}</p>` : ""
   ].join("");
   conversationState.append(statusCard);
 
@@ -871,7 +943,7 @@ function renderConversationPanel(health: HealthResponse): void {
     conversationBadge("Stop Requested", active.stopRequested || snapshot.stopRequested ? "yes" : "no", active.stopRequested || snapshot.stopRequested ? "warn" : "good")
   );
   if (active.endReason) {
-    conversationBadges.append(conversationBadge("End Reason", active.endReason, "bad"));
+    conversationBadges.append(conversationBadge("End Reason", displayCode(active.endReason), "bad"));
   }
 
   const retainedTurns = active.turns.slice(-6);
@@ -885,7 +957,7 @@ function renderConversationPanel(health: HealthResponse): void {
         `<p class=\"conversation-turn-title\">Turn ${turn.turn}</p>`,
         `<p><strong>You</strong>: ${turn.userText ?? "n/a"}</p>`,
         `<p><strong>Agent</strong>: ${turn.assistantText ?? "pending"}</p>`,
-        `<p><strong>Agent status</strong>: ${turn.assistantStatus ?? "n/a"}</p>`
+        `<p><strong>Agent status</strong>: ${turn.assistantStatus ? displayCode(turn.assistantStatus) : "n/a"}</p>`
       ].join("");
       conversationTurns.append(item);
     }
@@ -1263,6 +1335,93 @@ function bindQuickActions(): void {
   });
 }
 
+function normalizedConfirmation(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
+
+function summarizeRecoveryResult(result: SystemRecoveryResult): string {
+  const failures = result.errors.length;
+  const base = result.action === "panic-stop" ? "Panic Stop completed." : "Factory Reset completed.";
+  if (failures > 0) {
+    return `${base} ${failures} warning${failures === 1 ? "" : "s"} reported.`;
+  }
+  return base;
+}
+
+function bindRecoveryActions(): void {
+  const panicButton = panicStopButton;
+  const resetButton = factoryResetButton;
+
+  if (panicButton) {
+    panicButton.addEventListener("click", async () => {
+      const typed = normalizedConfirmation(panicConfirmationInput?.value ?? "");
+      if (typed !== PANIC_STOP_CONFIRMATION) {
+        setRecoveryStatus(`Type ${PANIC_STOP_CONFIRMATION} exactly to enable Panic Stop.`, true);
+        return;
+      }
+
+      panicButton.disabled = true;
+      try {
+        const response = await api<SystemRecoveryResponse>("/v1/system/panic-stop", {
+          method: "POST",
+          body: JSON.stringify({
+            confirmation: typed,
+            reason: "dashboard_panic_stop"
+          })
+        });
+        setRecoveryStatus(summarizeRecoveryResult(response.result), response.ok !== true);
+        if (panicConfirmationInput) {
+          panicConfirmationInput.value = "";
+        }
+        await refreshHealth();
+      } catch (error) {
+        setRecoveryStatus(error instanceof Error ? error.message : String(error), true);
+      } finally {
+        panicButton.disabled = false;
+      }
+    });
+  }
+
+  if (!resetButton) {
+    return;
+  }
+
+  resetButton.addEventListener("click", async () => {
+    const resetTyped = normalizedConfirmation(factoryResetConfirmationInput?.value ?? "");
+    if (resetTyped !== FACTORY_RESET_CONFIRMATION) {
+      setRecoveryStatus(`Type ${FACTORY_RESET_CONFIRMATION} exactly to enable Factory Reset.`, true);
+      return;
+    }
+
+    resetButton.disabled = true;
+    try {
+      const response = await api<SystemRecoveryResponse>("/v1/system/factory-reset", {
+        method: "POST",
+        body: JSON.stringify({
+          confirmation: resetTyped,
+          reason: "dashboard_factory_reset"
+        })
+      });
+      const message = `${summarizeRecoveryResult(response.result)} Run install again and reopen the dashboard.`;
+      setRecoveryStatus(message, response.ok !== true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecoveryStatus(
+        `Factory reset likely interrupted the dashboard service. Start fresh with install, then run "faye open". (${message})`,
+        false
+      );
+    } finally {
+      resetButton.disabled = false;
+      if (factoryResetConfirmationInput) {
+        factoryResetConfirmationInput.value = "";
+      }
+    }
+  });
+}
+
 function bindSetupForm(): void {
   const form = document.querySelector<HTMLFormElement>("#setup-form");
   if (!form) {
@@ -1356,6 +1515,7 @@ function bindCreateProfileForm(): void {
 
 async function bootstrap(): Promise<void> {
   bindQuickActions();
+  bindRecoveryActions();
   bindSetupForm();
   bindCreateProfileForm();
   bindEvents();

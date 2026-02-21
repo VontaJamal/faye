@@ -194,6 +194,7 @@ else
 fi
 
 services_ok=true
+shims_ok=true
 
 if [[ "${FAYE_INSTALL_TEST_MODE:-0}" == "1" ]]; then
   record_step "setup" true "SKIPPED_TEST_MODE" "setup skipped in test mode" 0
@@ -234,6 +235,16 @@ else
   fi
 fi
 
+shims_ms="$(now_ms)"
+if "$SCRIPT_DIR/install-shims.sh"; then
+  shims_done="$(now_ms)"
+  record_step "shims" true "OK" "installed command shims to ~/.local/bin (or configured bin dir)" "$((shims_done - shims_ms))"
+else
+  shims_done="$(now_ms)"
+  record_step "shims" false "E_SHIM_INSTALL_FAILED" "install-shims.sh failed; short commands unavailable" "$((shims_done - shims_ms))"
+  shims_ok=false
+fi
+
 echo "\nRunning doctor checks..."
 doctor_ms="$(now_ms)"
 doctor_output=""
@@ -271,7 +282,19 @@ fi
 ended_ms="$(now_ms)"
 record_step "summary" true "OK" "install complete in $((ended_ms - started_ms))ms" "0"
 
+if [[ "$shims_ok" == false ]]; then
+  write_report false "$doctor_ok" "$services_ok"
+  echo "Install finished with errors: command shim installation failed."
+  echo "Install report: $REPORT_PATH"
+  exit 1
+fi
+
 write_report true "$doctor_ok" "$services_ok"
 
 echo "\nInstall complete. Open: http://127.0.0.1:4587"
+echo "Short commands:"
+echo "  faye open"
+echo "  faye status"
+echo "  faye panic --confirm \"PANIC STOP\""
+echo "  faye reset --confirm \"FACTORY RESET\""
 echo "Install report: $REPORT_PATH"

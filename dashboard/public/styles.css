@@ -253,6 +253,47 @@ summary:focus-visible {
   gap: 0.56rem;
 }
 
+.recovery-stack {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.recovery-card {
+  border: 1px solid #dbcaa9;
+  border-radius: 12px;
+  background: #fffaf0;
+  padding: 0.72rem;
+}
+
+.recovery-card.factory {
+  border-color: #e3bcc4;
+  background: #fff3f6;
+}
+
+.recovery-card h3 {
+  margin: 0 0 0.35rem;
+  color: #6f4215;
+}
+
+.recovery-card.factory h3 {
+  color: #7d2031;
+}
+
+.recovery-card p {
+  margin: 0 0 0.6rem;
+  color: #4d5044;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.recovery-card code {
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.8rem;
+  background: #f7ebe0;
+  border-radius: 6px;
+  padding: 0.1rem 0.24rem;
+}
+
 button {
   border: 0;
   border-radius: 10px;
