@@ -32,12 +32,23 @@ export async function writeJsonAtomic(filePath: string, value: unknown, mode = 0
   const dir = path.dirname(filePath);
   await ensureDir(dir);
 
-  const tmpFile = `${filePath}.tmp`;
+  const tmpFile = path.join(
+    dir,
+    `.${path.basename(filePath)}.${process.pid}.${Date.now().toString(36)}.${crypto.randomBytes(6).toString("hex")}.tmp`
+  );
   const json = `${JSON.stringify(value, null, 2)}\n`;
 
-  await fs.writeFile(tmpFile, json, { mode });
-  await fs.rename(tmpFile, filePath);
-  await fs.chmod(filePath, mode);
+  let renamed = false;
+  try {
+    await fs.writeFile(tmpFile, json, { mode });
+    await fs.rename(tmpFile, filePath);
+    renamed = true;
+    await fs.chmod(filePath, mode);
+  } finally {
+    if (!renamed) {
+      await fs.rm(tmpFile, { force: true }).catch(() => undefined);
+    }
+  }
 }
 
 export async function writeSecret(filePath: string, value: string): Promise<void> {

@@ -13,7 +13,7 @@ import {
 import { ConfigStore } from "./store";
 import type { BridgeCommand } from "./telegramBridgeParser";
 import { parseBridgeCommand } from "./telegramBridgeParser";
-import { ensureDir, expandHomePath, pathExists, readSecret } from "./utils";
+import { ensureDir, expandHomePath, pathExists, readSecret, writeJsonAtomic } from "./utils";
 
 interface TelegramMessage {
   message_id: number;
@@ -146,9 +146,7 @@ async function loadRuntimeStatus(): Promise<BridgeRuntimeStatus> {
 }
 
 async function persistRuntimeStatus(status: BridgeRuntimeStatus): Promise<void> {
-  await ensureDir(path.dirname(BRIDGE_RUNTIME_STATUS_PATH));
-  await fs.writeFile(BRIDGE_RUNTIME_STATUS_PATH, `${JSON.stringify(status, null, 2)}\n`, { mode: 0o600 });
-  await fs.chmod(BRIDGE_RUNTIME_STATUS_PATH, 0o600);
+  await writeJsonAtomic(BRIDGE_RUNTIME_STATUS_PATH, status, 0o600);
 }
 
 async function updateRuntimeStatus(patch: Partial<BridgeRuntimeStatus>): Promise<void> {
@@ -209,14 +207,12 @@ async function loadProcessedKeyStore(): Promise<ProcessedKeyStore> {
 }
 
 async function persistProcessedKeyStore(store: ProcessedKeyStore): Promise<void> {
-  await ensureDir(path.dirname(BRIDGE_PROCESSED_KEYS_PATH));
   const payload = {
     version: 1,
     updatedAt: new Date().toISOString(),
     keys: store.order
   };
-  await fs.writeFile(BRIDGE_PROCESSED_KEYS_PATH, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
-  await fs.chmod(BRIDGE_PROCESSED_KEYS_PATH, 0o600);
+  await writeJsonAtomic(BRIDGE_PROCESSED_KEYS_PATH, payload, 0o600);
 }
 
 async function hasProcessedCommandKey(key: string): Promise<boolean> {
