@@ -245,3 +245,9 @@ Rinshari-UI is the design playbook for maintainers who change UI behavior:
 ## License
 
 MIT
+
+---
+
+[Explore the Vault →](https://github.com/VontaJamal/shadow-vault)
+
+Part of [Sovereign](https://github.com/VontaJamal) — The Shadow Dominion.
