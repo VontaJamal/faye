@@ -100,6 +100,36 @@ UX onboarding KPI (local only):
 
 - `.faye/reports/ui-kpi.json`
 
+## 8. Prompt cache readiness (OpenClaw-first)
+
+Faye does not send OpenAI LLM requests directly. Prompt cache behavior is enforced in OpenClaw runtimes that Faye integrates with.
+
+Run contract checks in this repo:
+
+```bash
+./scripts/prompt-cache-contract-check.sh
+```
+
+If you have an OpenClaw runtime config available locally, validate the dependent contract too:
+
+```bash
+./scripts/prompt-cache-contract-check.sh \
+  --dependent-config "$HOME/.openclaw/openclaw-config.json" \
+  --strict-dependent
+```
+
+For repos that call LLM endpoints directly, run the reusable smoke test:
+
+```bash
+./scripts/prompt-cache-smoke.sh
+```
+
+Baseline collector (before/after rollout):
+
+```bash
+node ./scripts/prompt-cache-baseline.mjs --runs 6
+```
+
 ## Panic and reset recovery
 
 Use these no-risk controls when onboarding gets stuck:

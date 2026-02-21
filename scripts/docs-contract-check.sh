@@ -23,6 +23,9 @@ required=(
   "scripts/install-kpi.mjs"
   "scripts/canary-smoke.sh"
   "scripts/security-check.sh"
+  "scripts/prompt-cache-contract-check.sh"
+  "scripts/prompt-cache-smoke.sh"
+  "scripts/prompt-cache-baseline.mjs"
   "scripts/always-on-proof.sh"
   "scripts/burn-in-day.sh"
   "scripts/slo-eval.sh"
@@ -40,6 +43,7 @@ required=(
   "references/reliability-slo.md"
   "docs/distribution.md"
   "docs/openclaw-second-install.md"
+  "docs/audits/2026-02-21-prompt-cache-prefix-stability.md"
   "docs/public-alpha-kit.md"
   "docs/always-on-proof.md"
   "docs/burn-in.md"
@@ -59,6 +63,8 @@ required=(
   "references/seven-shadow-doctrine.md"
   "references/supported-voices.md"
   "references/openclaw-telegram-protocol.md"
+  "references/shadow-prompt-caching-v1.md"
+  "references/openclaw-prompt-caching-config.example.json"
 )
 
 for file in "${required[@]}"; do
@@ -81,6 +87,7 @@ grep -q "Contributing" "$ROOT_DIR/README.md" || { echo "README missing contribut
 grep -q "Open Dashboard (short commands)" "$ROOT_DIR/README.md" || { echo "README missing short command dashboard section"; exit 1; }
 grep -q "Panic Stop vs Factory Reset" "$ROOT_DIR/README.md" || { echo "README missing panic/reset section"; exit 1; }
 grep -q "No-risk recovery for new users" "$ROOT_DIR/README.md" || { echo "README missing no-risk recovery section"; exit 1; }
+grep -q "Prompt Caching" "$ROOT_DIR/README.md" || { echo "README missing prompt caching section"; exit 1; }
 
 node - <<'NODE'
 const fs = require("fs");
@@ -153,5 +160,7 @@ if (pkgVersion !== latestRelease.value) {
   throw new Error(`package.json version (${pkg.version}) must match latest release doc (${latestRelease.value})`);
 }
 NODE
+
+(cd "$ROOT_DIR" && ./scripts/prompt-cache-contract-check.sh)
 
 echo "Docs contract checks passed."

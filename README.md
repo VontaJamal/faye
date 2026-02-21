@@ -61,6 +61,22 @@ Use the canonical OpenClaw -> Faye onboarding path:
 
 - `docs/openclaw-second-install.md`
 
+## Prompt Caching (OpenClaw-first)
+
+Faye stays a local voice/control-plane layer. OpenClaw is the prompt-cache execution layer.
+
+- Contract: `references/shadow-prompt-caching-v1.md`
+- Config example: `references/openclaw-prompt-caching-config.example.json`
+- Prefix stability audit: `docs/audits/2026-02-21-prompt-cache-prefix-stability.md`
+
+Validation commands:
+
+```bash
+./scripts/prompt-cache-contract-check.sh
+./scripts/prompt-cache-smoke.sh
+node ./scripts/prompt-cache-baseline.mjs --runs 6
+```
+
 ## 3-step Quick Start
 
 1. `./scripts/install.sh`

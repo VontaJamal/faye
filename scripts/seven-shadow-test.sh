@@ -24,7 +24,10 @@ run_matrix() {
   echo "[6] Documentation drift check"
   (cd "$ROOT_DIR" && ./scripts/docs-contract-check.sh)
 
-  echo "[7] Seven Shadow System policy smoke"
+  echo "[7] Prompt cache contract gate"
+  (cd "$ROOT_DIR" && ./scripts/prompt-cache-contract-check.sh)
+
+  echo "[8] Seven Shadow System policy smoke"
   (cd "$ROOT_DIR" && npm run guard:seven-shadow -- --policy .seven-shadow/policy-smoke.json --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review --report .seven-shadow/reports/local-report.json)
 }
 

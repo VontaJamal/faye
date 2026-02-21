@@ -55,3 +55,4 @@ This upgrade permanently adds:
 3. Security pattern scanning (`scripts/security-check.sh`).
 4. Beginner-safe distribution bootstrap (`scripts/bootstrap.sh`).
 5. Trust/safety and contributor governance docs as release contracts.
+6. Prompt cache governance contract + smoke tooling (`references/shadow-prompt-caching-v1.md`, `scripts/prompt-cache-contract-check.sh`, `scripts/prompt-cache-smoke.sh`).

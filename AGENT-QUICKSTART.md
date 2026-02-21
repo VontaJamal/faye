@@ -55,3 +55,19 @@ faye-reset --confirm "FACTORY RESET"
 ## Machine-readable contract
 
 See `agent-contract.json` for command aliases, API routes, and recovery guarantees.
+
+## Prompt cache contract checks
+
+Faye delegates prompt caching to OpenClaw runtimes. Validate contract artifacts before release:
+
+```bash
+./scripts/prompt-cache-contract-check.sh
+```
+
+Optional dependent runtime check:
+
+```bash
+./scripts/prompt-cache-contract-check.sh \
+  --dependent-config "$HOME/.openclaw/openclaw-config.json" \
+  --strict-dependent
+```
