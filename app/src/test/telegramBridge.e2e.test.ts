@@ -12,12 +12,26 @@ function makeLogger(): Logger {
   };
 }
 
-function speakUpdate(updateId: number, sessionId: string, text: string): TelegramUpdate {
+function speakUpdate(updateId: number, sessionId: string, text: string, turn?: number): TelegramUpdate {
+  const turnPart = typeof turn === "number" ? ` turn=${turn}` : "";
   return {
     update_id: updateId,
     message: {
       message_id: updateId,
-      text: `#faye_speak session=${sessionId} text=${text}`,
+      text: `#faye_speak session=${sessionId}${turnPart} text=${text}`,
+      chat: {
+        id: 999
+      }
+    }
+  };
+}
+
+function activateUpdate(updateId: number, profileId: string): TelegramUpdate {
+  return {
+    update_id: updateId,
+    message: {
+      message_id: updateId,
+      text: `#faye_profile_activate id=${profileId}`,
       chat: {
         id: 999
       }
@@ -202,4 +216,80 @@ test("telegram bridge emits duplicate spoken event on replayed session", async (
     ),
     true
   );
+});
+
+test("telegram bridge processes multiple turns in the same session", async () => {
+  const localCalls: Array<{ pathname: string; body?: unknown }> = [];
+  const telegramMessages: string[] = [];
+  const localEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  const processed = new Set<string>();
+
+  const updates = [
+    speakUpdate(2001, "s-loop-1", "First response", 1),
+    speakUpdate(2002, "s-loop-1", "Second response", 2)
+  ];
+
+  await processUpdates("token", 999, updates, makeLogger(), {
+    callLocalApiFn: async (pathname, body) => {
+      localCalls.push({ pathname, body });
+    },
+    sendTelegramFn: async (_token, _chatId, text) => {
+      telegramMessages.push(text);
+    },
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async (key) => processed.has(key),
+    markProcessedFn: async (key) => {
+      processed.add(key);
+    },
+    emitLocalEventFn: async (type, payload) => {
+      localEvents.push({ type, payload });
+    }
+  });
+
+  assert.equal(localCalls.length, 2);
+  assert.equal(localCalls[0]?.pathname, "/v1/speak");
+  assert.equal(localCalls[1]?.pathname, "/v1/speak");
+  assert.equal(localCalls[0]?.body && (localCalls[0].body as { text?: string }).text, "First response");
+  assert.equal(localCalls[1]?.body && (localCalls[1].body as { text?: string }).text, "Second response");
+  assert.equal(telegramMessages.includes("#faye_spoken status=ok session=s-loop-1"), true);
+  assert.equal(
+    localEvents.some(
+      (event) =>
+        event.type === "bridge_speak_received" &&
+        event.payload.session_id === "s-loop-1" &&
+        event.payload.turn === 2 &&
+        event.payload.text === "Second response"
+    ),
+    true
+  );
+});
+
+test("telegram bridge keeps action execution reliable with replayed mixed commands", async () => {
+  const localCalls: Array<{ pathname: string; body?: unknown }> = [];
+  const processed = new Set<string>();
+
+  const updates = [
+    speakUpdate(3001, "s-mixed-1", "Need status", 1),
+    activateUpdate(3002, "starter-profile"),
+    speakUpdate(3003, "s-mixed-1", "Action complete", 2)
+  ];
+
+  const deps = {
+    callLocalApiFn: async (pathname: string, body?: unknown) => {
+      localCalls.push({ pathname, body });
+    },
+    sendTelegramFn: async () => undefined,
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async (key: string) => processed.has(key),
+    markProcessedFn: async (key: string) => {
+      processed.add(key);
+    },
+    emitLocalEventFn: async () => undefined
+  };
+
+  await processUpdates("token", 999, updates, makeLogger(), deps);
+  await processUpdates("token", 999, updates, makeLogger(), deps);
+
+  assert.equal(localCalls.filter((call) => call.pathname === "/v1/speak").length, 2);
+  assert.equal(localCalls.filter((call) => call.pathname === "/v1/profiles/starter-profile/activate").length, 1);
 });

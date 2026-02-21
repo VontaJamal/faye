@@ -242,7 +242,7 @@ async function markProcessedCommandKey(key: string): Promise<void> {
 
 function bridgeCommandKey(command: BridgeCommand, updateId: number): string {
   if (command.type === "speak") {
-    return command.sessionId ? `speak:session:${command.sessionId}` : `speak:update:${updateId}`;
+    return command.sessionId ? `speak:session:${command.sessionId}:update:${updateId}` : `speak:update:${updateId}`;
   }
   if (command.type === "activate_profile") {
     return `activate:${command.profileId}:update:${updateId}`;
@@ -425,7 +425,8 @@ export async function processUpdates(
         await sendTelegramFn(botToken, chatId, `#faye_spoken status=duplicate session=${command.sessionId}`).catch(() => undefined);
         await emitLocalEventFn("bridge_spoken", {
           session_id: command.sessionId,
-          status: "duplicate"
+          status: "duplicate",
+          turn: command.turn
         }).catch(() => undefined);
       }
 
@@ -446,7 +447,9 @@ export async function processUpdates(
         if (command.sessionId) {
           await emitLocalEventFn("bridge_speak_received", {
             session_id: command.sessionId,
-            update_id: update.update_id
+            update_id: update.update_id,
+            text: command.text,
+            turn: command.turn
           }).catch(() => undefined);
         }
 
@@ -461,7 +464,8 @@ export async function processUpdates(
         if (command.sessionId) {
           await emitLocalEventFn("bridge_spoken", {
             session_id: command.sessionId,
-            status: "ok"
+            status: "ok",
+            turn: command.turn
           }).catch(() => undefined);
         }
       }
@@ -488,7 +492,8 @@ export async function processUpdates(
       if (command.type === "speak" && command.sessionId) {
         await emitLocalEventFn("bridge_spoken", {
           session_id: command.sessionId,
-          status: "error"
+          status: "error",
+          turn: command.turn
         }).catch(() => undefined);
       }
     }

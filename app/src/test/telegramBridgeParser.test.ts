@@ -13,20 +13,22 @@ test("parses simple speak command", () => {
 });
 
 test("parses key-value speak command with session", () => {
-  const command = parseBridgeCommand("#faye_speak session=abc123 text=Mission acknowledged");
+  const command = parseBridgeCommand("#faye_speak session=abc123 turn=2 text=Mission acknowledged");
   assert.deepEqual(command, {
     type: "speak",
     text: "Mission acknowledged",
-    sessionId: "abc123"
+    sessionId: "abc123",
+    turn: 2
   });
 });
 
 test("parses JSON speak command", () => {
-  const command = parseBridgeCommand('#faye_speak {"session_id":"s-1","text":"Jarvis online"}');
+  const command = parseBridgeCommand('#faye_speak {"session_id":"s-1","turn":3,"text":"Jarvis online"}');
   assert.deepEqual(command, {
     type: "speak",
     text: "Jarvis online",
-    sessionId: "s-1"
+    sessionId: "s-1",
+    turn: 3
   });
 });
 
@@ -42,4 +44,3 @@ test("parses ping command", () => {
   const command = parseBridgeCommand("#faye_ping");
   assert.deepEqual(command, { type: "ping" });
 });
-

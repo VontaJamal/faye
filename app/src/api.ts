@@ -6,6 +6,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { ZodError } from "zod";
 
 import { playAudioFile } from "./audio";
+import { ConversationSessionManager } from "./conversationSessionManager";
 import { runDoctor, type DoctorReport } from "./doctor";
 import type { EventHub } from "./events";
 import { ElevenLabsClient } from "./elevenlabs";
@@ -182,6 +183,10 @@ export function createApiServer(deps: ApiDependencies): express.Express {
   const metrics = new MetricsCollector({
     events: deps.events
   });
+  const conversation = new ConversationSessionManager({
+    events: deps.events,
+    logger: deps.logger
+  });
   const uxKpi = deps.uxKpi ?? new UxKpiTracker();
 
   const recordUxKpi = async (operation: string, callback: () => Promise<void>): Promise<void> => {
@@ -247,6 +252,7 @@ export function createApiServer(deps: ApiDependencies): express.Express {
         bridgeRuntime,
         roundTrip: roundTrip.getSnapshot(),
         metrics: metrics.getSnapshot(),
+        conversation: conversation.getSnapshot(),
         onboarding: onboardingSummary({
           doctor,
           listener,
