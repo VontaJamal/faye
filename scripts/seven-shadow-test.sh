@@ -19,7 +19,7 @@ run_matrix() {
   (cd "$ROOT_DIR" && ./scripts/accessibility-check.sh)
 
   echo "[5] API contract smoke"
-  (cd "$ROOT_DIR" && node -e "const fs=require('fs'); const api=fs.readFileSync('app/src/api.ts','utf8'); const required=['/v1/health','/v1/profiles','/v1/events']; for (const p of required) if (!api.includes(p)) throw new Error('Missing '+p); console.log('API smoke ok')")
+  (cd "$ROOT_DIR" && node -e "const fs=require('fs'); const candidates=['app/src/api.ts','app/src/http/createApiServer.ts','app/src/http/routes/health.ts','app/src/http/routes/profiles.ts','app/src/http/routes/events.ts']; const api=candidates.filter((file)=>fs.existsSync(file)).map((file)=>fs.readFileSync(file,'utf8')).join('\\n'); const required=['/v1/health','/v1/profiles','/v1/events']; for (const p of required) if (!api.includes(p)) throw new Error('Missing '+p); console.log('API smoke ok')")
 
   echo "[6] Documentation drift check"
   (cd "$ROOT_DIR" && ./scripts/docs-contract-check.sh)
