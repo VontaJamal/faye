@@ -205,52 +205,24 @@ Media folder:
 
 Authoring notes: `docs/media/README.md`
 
-## Seven Shadow Standard
+## Protected by the [Seven Shadows](https://github.com/VontaJamal/seven-shadow-system)
 
-Faye uses a Seven Shadow quality standard:
+Every PR is guarded by the Seven Shadow System — AI review detection, human sign-off enforcement, and a quality doctrine across seven domains: Security, Accessibility, Testing, Execution, Scales, Value, and Aesthetics.
 
-1. Security
-2. Accessibility
-3. Testing
-4. Execution
-5. Scales
-6. Value
-7. Aesthetics
-
-Doctrine: `references/seven-shadow-doctrine.md`
-
-Run the gauntlet:
-
-```bash
-./scripts/seven-shadow-test.sh
-```
-
-Scheduled reliability smoke:
-
-```bash
-npm run canary
-```
-
-7-day burn-in runbook: `docs/burn-in.md`
-Burn-in tracker issue: `https://github.com/VontaJamal/faye/issues/3`
-Fail-closed PR gate during burn-in: `.github/workflows/burn-in-gate.yml`
-Daily SLO check script: `./scripts/slo-eval.sh`
-
-## Seven Shadow System
-
-Faye uses the open-source Seven Shadow System as its AI review guard.
-
-- Repo: [VontaJamal/seven-shadow-system](https://github.com/VontaJamal/seven-shadow-system)
-- Submodule path: `governance/seven-shadow-system`
+- Submodule: `governance/seven-shadow-system`
 - Policy: `.seven-shadow/policy.json`
-- CI workflow: `.github/workflows/seven-shadow-system.yml`
-- Guide: `references/seven-shadow-system.md`
-
-Local smoke check:
+- CI: `.github/workflows/seven-shadow-system.yml`
+- Doctrine: `references/seven-shadow-doctrine.md`
 
 ```bash
+# Run the gauntlet
+./scripts/seven-shadow-test.sh
+
+# Smoke check
 npm run guard:seven-shadow -- --policy .seven-shadow/policy-smoke.json --event governance/seven-shadow-system/examples/pr_review_event.json --event-name pull_request_review
 ```
+
+Burn-in: `docs/burn-in.md` · SLO check: `./scripts/slo-eval.sh` · Canary: `npm run canary`
 
 ## Contributing
 
