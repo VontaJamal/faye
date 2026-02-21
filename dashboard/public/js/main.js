@@ -1,10 +1,22 @@
 "use strict";
+const FIELD_MAX = {
+    profileName: 80,
+    apiKey: 300,
+    voiceId: 128,
+    voiceName: 128,
+    wakeWord: 120,
+    telegramToken: 300,
+    telegramChatId: 64
+};
 const setupStatus = document.querySelector("#setup-status");
+const setupValidationSummary = document.querySelector("#setup-validation-summary");
 const profileList = document.querySelector("#profile-list");
 const healthPre = document.querySelector("#health");
 const eventsList = document.querySelector("#events");
 const runtimeStatus = document.querySelector("#runtime-status");
 const serviceSummary = document.querySelector("#service-summary");
+const firstSuccessChecklist = document.querySelector("#first-success-checklist");
+let latestHealth = null;
 function setStatus(message, error = false) {
     if (!setupStatus) {
         return;
@@ -63,6 +75,13 @@ function formatTimestamp(value) {
     }
     return date.toLocaleString();
 }
+function formatDuration(valueMs) {
+    if (valueMs === null) {
+        return "n/a";
+    }
+    const minutes = valueMs / 60_000;
+    return `${minutes.toFixed(1)} min`;
+}
 function formatPercent(value) {
     if (value === null) {
         return "n/a";
@@ -108,6 +127,13 @@ function classifyLatency(value) {
     }
     return "bad";
 }
+function itemFromOnboarding(health, itemId) {
+    const items = health?.onboarding?.checklist.items ?? [];
+    return items.find((item) => item.id === itemId) ?? null;
+}
+function apiKeyReadyForActiveProfile() {
+    return itemFromOnboarding(latestHealth, "api-key-ready")?.ok === true;
+}
 function renderServiceSummary(health) {
     if (!serviceSummary) {
         return;
@@ -116,9 +142,13 @@ function renderServiceSummary(health) {
     const listener = health.services?.listener;
     const dashboard = health.services?.dashboard;
     const bridge = health.services?.bridge;
+    const checklist = health.onboarding?.checklist;
     serviceSummary.append(makeChip("Doctor", health.doctor?.ok === true ? "ok" : "attention", health.doctor?.ok === true ? "good" : "bad"), makeChip("Listener", listener?.code === 0 ? "running" : "down", classifyService(listener)), makeChip("Dashboard", dashboard?.code === 0 ? "running" : "down", classifyService(dashboard)), makeChip("Bridge", bridge?.code === 0 ? "running" : "down", classifyService(bridge)), makeChip("p95", health.metrics?.latency.p95Ms === null || health.metrics?.latency.p95Ms === undefined
         ? "n/a"
         : `${health.metrics.latency.p95Ms}ms`, classifyLatency(health.metrics?.latency.p95Ms ?? null)), makeChip("Error Rate", formatPercent(health.metrics?.errorRate.value ?? null), classifyErrorRate(health.metrics?.errorRate.value ?? null)));
+    if (checklist) {
+        serviceSummary.append(makeChip("First Success", `${checklist.completed}/${checklist.total}`, checklist.completed === checklist.total ? "good" : "warn"));
+    }
 }
 function renderRuntimeCell(label, value) {
     const item = document.createElement("div");
@@ -154,6 +184,51 @@ function renderRuntimeStatus(runtime, roundTrip, metrics) {
         runtimeStatus.append(renderRuntimeCell("Wake Detections", String(metrics.eventCounts.wakeDetections)), renderRuntimeCell("Spoken OK", String(metrics.roundTrip.bridgeSpokenOk)), renderRuntimeCell("p95 Latency", metrics.latency.p95Ms === null ? "n/a" : `${metrics.latency.p95Ms}ms`), renderRuntimeCell("Error Rate", formatPercent(metrics.errorRate.value)));
     }
     requestAnimationFrame(() => runtimeStatus.classList.add("pulse"));
+}
+function renderFirstSuccessChecklist(health) {
+    if (!firstSuccessChecklist) {
+        return;
+    }
+    firstSuccessChecklist.innerHTML = "";
+    const onboarding = health.onboarding;
+    if (!onboarding) {
+        appendEmptyState(firstSuccessChecklist, "Checklist data not available yet.");
+        return;
+    }
+    const progress = document.createElement("p");
+    progress.className = "checklist-progress";
+    progress.textContent = `Progress: ${onboarding.checklist.completed}/${onboarding.checklist.total}`;
+    const goal = document.createElement("p");
+    goal.className = "checklist-goal";
+    goal.textContent =
+        onboarding.checklist.completed === onboarding.checklist.total
+            ? "Ready. You can now talk to your agent in a stable loop."
+            : "Talk to your agent in under 10 minutes by completing every item below.";
+    const list = document.createElement("ul");
+    list.className = "checklist-items";
+    for (const item of onboarding.checklist.items) {
+        const li = document.createElement("li");
+        li.className = `checklist-item ${item.ok ? "good" : "bad"}`;
+        const title = document.createElement("span");
+        title.className = "checklist-label";
+        title.textContent = item.label;
+        const message = document.createElement("small");
+        message.className = "checklist-message";
+        message.textContent = item.message;
+        li.append(title, message);
+        list.append(li);
+    }
+    const metrics = document.createElement("div");
+    metrics.className = "checklist-metrics";
+    metrics.innerHTML = [
+        `First setup: ${formatTimestamp(onboarding.firstSetupAt)}`,
+        `First voice success: ${formatTimestamp(onboarding.firstVoiceSuccessAt)}`,
+        `Time to first success: ${formatDuration(onboarding.timeToFirstSuccessMs)}`,
+        `Last voice test: ${formatTimestamp(onboarding.lastVoiceTestAt)}`
+    ]
+        .map((entry) => `<p>${entry}</p>`)
+        .join("");
+    firstSuccessChecklist.append(progress, goal, list, metrics);
 }
 function appendProfileLine(container, text, strong = false) {
     const el = document.createElement(strong ? "strong" : "small");
@@ -192,6 +267,7 @@ function profileCard(profile, activeProfileId) {
             });
             setStatus(`Wake word updated for ${profile.name}`);
             await refreshProfiles();
+            await refreshHealth();
         }
         catch (error) {
             setStatus(error instanceof Error ? error.message : String(error), true);
@@ -251,9 +327,11 @@ async function refreshHealth() {
         return;
     }
     const health = await api("/v1/health");
+    latestHealth = health;
     healthPre.textContent = JSON.stringify(health, null, 2);
     renderRuntimeStatus(health.bridgeRuntime, health.roundTrip, health.metrics);
     renderServiceSummary(health);
+    renderFirstSuccessChecklist(health);
 }
 function renderEvent(payload) {
     const item = document.createElement("li");
@@ -292,6 +370,116 @@ function bindEvents() {
         while (eventsList.children.length > 25) {
             eventsList.removeChild(eventsList.lastChild);
         }
+    };
+}
+function clearSetupValidationState(form) {
+    form.querySelectorAll("[data-setup-field]").forEach((input) => {
+        input.classList.remove("input-invalid");
+        input.setAttribute("aria-invalid", "false");
+    });
+    form.querySelectorAll("[data-setup-error]").forEach((fieldError) => {
+        fieldError.textContent = "";
+    });
+    if (setupValidationSummary) {
+        setupValidationSummary.innerHTML = "";
+        setupValidationSummary.classList.remove("visible");
+    }
+}
+function renderSetupValidationState(form, errors) {
+    clearSetupValidationState(form);
+    const entries = Object.entries(errors);
+    for (const [field, message] of entries) {
+        const input = form.querySelector(`[data-setup-field="${field}"]`);
+        const fieldError = form.querySelector(`[data-setup-error="${field}"]`);
+        if (input) {
+            input.classList.add("input-invalid");
+            input.setAttribute("aria-invalid", "true");
+        }
+        if (fieldError) {
+            fieldError.textContent = message;
+        }
+    }
+    if (setupValidationSummary && entries.length > 0) {
+        const list = document.createElement("ul");
+        for (const [, message] of entries) {
+            const item = document.createElement("li");
+            item.textContent = message;
+            list.append(item);
+        }
+        const intro = document.createElement("p");
+        intro.textContent = "Please fix these fields before continuing:";
+        setupValidationSummary.innerHTML = "";
+        setupValidationSummary.append(intro, list);
+        setupValidationSummary.classList.add("visible");
+    }
+}
+function validateSetupPayload(form) {
+    const data = new FormData(form);
+    const profileName = String(data.get("profileName") ?? "").trim();
+    const apiKey = optionalField(data.get("apiKey"));
+    const voiceId = String(data.get("voiceId") ?? "").trim();
+    const voiceName = String(data.get("voiceName") ?? "").trim();
+    const wakeWord = String(data.get("wakeWord") ?? "").trim();
+    const telegramToken = optionalField(data.get("telegramToken"));
+    const telegramChatId = optionalField(data.get("telegramChatId"));
+    const errors = {};
+    if (profileName.length === 0) {
+        errors.profileName = "Profile name is required.";
+    }
+    else if (profileName.length > FIELD_MAX.profileName) {
+        errors.profileName = `Profile name must be ${FIELD_MAX.profileName} characters or fewer.`;
+    }
+    if (voiceId.length === 0) {
+        errors.voiceId = "Voice ID is required.";
+    }
+    else if (voiceId.length > FIELD_MAX.voiceId) {
+        errors.voiceId = `Voice ID must be ${FIELD_MAX.voiceId} characters or fewer.`;
+    }
+    if (voiceName.length === 0) {
+        errors.voiceName = "Voice name is required.";
+    }
+    else if (voiceName.length > FIELD_MAX.voiceName) {
+        errors.voiceName = `Voice name must be ${FIELD_MAX.voiceName} characters or fewer.`;
+    }
+    if (wakeWord.length === 0) {
+        errors.wakeWord = "Wake word is required.";
+    }
+    else if (wakeWord.length > FIELD_MAX.wakeWord) {
+        errors.wakeWord = `Wake word must be ${FIELD_MAX.wakeWord} characters or fewer.`;
+    }
+    if (!apiKeyReadyForActiveProfile() && !apiKey) {
+        errors.apiKey = "API key is required until health confirms a valid active key (0600).";
+    }
+    if (apiKey && apiKey.length > FIELD_MAX.apiKey) {
+        errors.apiKey = "API key appears too long. Please paste a valid key.";
+    }
+    const hasToken = Boolean(telegramToken);
+    const hasChatId = Boolean(telegramChatId);
+    if (hasToken !== hasChatId) {
+        if (!hasToken) {
+            errors.telegramToken = "Telegram bot token is required when chat ID is provided.";
+        }
+        if (!hasChatId) {
+            errors.telegramChatId = "Telegram chat ID is required when bot token is provided.";
+        }
+    }
+    if (telegramChatId && telegramChatId.length > FIELD_MAX.telegramChatId) {
+        errors.telegramChatId = `Telegram chat ID must be ${FIELD_MAX.telegramChatId} characters or fewer.`;
+    }
+    if (Object.keys(errors).length > 0) {
+        return { payload: null, errors };
+    }
+    return {
+        payload: {
+            profileName,
+            apiKey,
+            voiceId,
+            voiceName,
+            wakeWord,
+            telegramToken,
+            telegramChatId
+        },
+        errors
     };
 }
 function bindQuickActions() {
@@ -335,9 +523,11 @@ function bindQuickActions() {
                 body: JSON.stringify({ text: "Faye is online." })
             });
             setStatus("Voice test played.");
+            await refreshHealth();
         }
         catch (error) {
             setStatus(error instanceof Error ? error.message : String(error), true);
+            await refreshHealth().catch(() => undefined);
         }
     });
 }
@@ -346,22 +536,38 @@ function bindSetupForm() {
     if (!form) {
         return;
     }
+    form.querySelectorAll("[data-setup-field]").forEach((input) => {
+        input.addEventListener("input", () => {
+            const field = input.getAttribute("data-setup-field");
+            if (!field) {
+                return;
+            }
+            const errors = {};
+            if (field === "telegramToken" || field === "telegramChatId") {
+                renderSetupValidationState(form, errors);
+                return;
+            }
+            const fieldError = form.querySelector(`[data-setup-error="${field}"]`);
+            if (fieldError) {
+                fieldError.textContent = "";
+            }
+            input.classList.remove("input-invalid");
+            input.setAttribute("aria-invalid", "false");
+        });
+    });
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const data = new FormData(form);
-        const payload = {
-            profileName: String(data.get("profileName") ?? "Primary Voice"),
-            apiKey: optionalField(data.get("apiKey")),
-            voiceId: String(data.get("voiceId") ?? ""),
-            voiceName: String(data.get("voiceName") ?? ""),
-            wakeWord: String(data.get("wakeWord") ?? "Faye Arise"),
-            telegramToken: optionalField(data.get("telegramToken")),
-            telegramChatId: optionalField(data.get("telegramChatId"))
-        };
+        const validated = validateSetupPayload(form);
+        if (!validated.payload) {
+            renderSetupValidationState(form, validated.errors);
+            setStatus("Setup blocked until validation errors are fixed.", true);
+            return;
+        }
+        clearSetupValidationState(form);
         try {
             await api("/v1/setup", {
                 method: "POST",
-                body: JSON.stringify(payload)
+                body: JSON.stringify(validated.payload)
             });
             setStatus("Setup saved.");
             await refreshProfiles();

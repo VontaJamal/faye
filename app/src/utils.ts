@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { InstallAttemptReport } from "./types";
+import { UxKpiReportSchema, type InstallAttemptReport, type UxKpiReport } from "./types";
 
 export async function pathExists(filePath: string): Promise<boolean> {
   try {
@@ -54,6 +54,19 @@ export async function writeInstallAttemptReport(
   const filePath = path.join(reportsDir, `${prefix}-${stamp}-${process.pid}.json`);
   await writeJsonAtomic(filePath, report, 0o600);
   return filePath;
+}
+
+export async function readUxKpiReport(filePath: string): Promise<UxKpiReport | null> {
+  if (!(await pathExists(filePath))) {
+    return null;
+  }
+  const parsed = await readJsonFile<unknown>(filePath);
+  return UxKpiReportSchema.parse(parsed);
+}
+
+export async function writeUxKpiReport(filePath: string, report: UxKpiReport): Promise<void> {
+  const valid = UxKpiReportSchema.parse(report);
+  await writeJsonAtomic(filePath, valid, 0o600);
 }
 
 export async function readSecret(filePath: string): Promise<string> {

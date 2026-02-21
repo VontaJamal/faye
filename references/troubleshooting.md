@@ -15,6 +15,24 @@ Use this page when setup or voice flow is not working.
 
 If `doctor` returns `"ok": true`, try your wake flow again.
 If `first-success` returns `"ok": false`, attach the generated `.faye/reports/install-attempt-*.json` report when filing an issue.
+If dashboard checklist is below `4/4`, use the failing checklist item as your next fix target.
+
+## Dashboard Checklist Recovery
+
+Open:
+
+- `http://127.0.0.1:4587`
+
+Fix by checklist item:
+
+1. Services ready
+   - Restart listener/dashboard/bridge controls.
+2. API key ready
+   - Ensure `~/.openclaw/secrets/elevenlabs-api-key.txt` exists and is `0600`.
+3. Profile configured
+   - Re-run `./scripts/faye setup` and confirm voice + wake word values.
+4. Voice test passed
+   - Use dashboard `Test Voice` and confirm audible output.
 
 ## Install Fails
 
@@ -152,3 +170,8 @@ Before sharing to new users:
 
 Expected:
 - `All Seven Shadow runs passed (2/2).`
+
+## Attach These Reports In Bug Issues
+
+1. Latest `.faye/reports/install-attempt-*.json`
+2. `.faye/reports/ui-kpi.json`
