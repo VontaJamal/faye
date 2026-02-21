@@ -4,7 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { expandHomePath, profileIdFromName, slugify, writeInstallAttemptReport, writeJsonAtomic } from "../utils";
+import {
+  createTempAudioPath,
+  expandHomePath,
+  profileIdFromName,
+  slugify,
+  writeInstallAttemptReport,
+  writeJsonAtomic
+} from "../utils";
 
 test("slugify normalizes input and trims separators", () => {
   assert.equal(slugify("  Faye Primary Voice  "), "faye-primary-voice");
@@ -22,6 +29,18 @@ test("expandHomePath resolves tilde paths", () => {
   assert.equal(expandHomePath("~"), home);
   assert.equal(expandHomePath("~/foo/bar"), path.join(home, "foo", "bar"));
   assert.equal(expandHomePath("/tmp/abc"), "/tmp/abc");
+});
+
+test("createTempAudioPath generates unique temp mp3 paths", () => {
+  const seen = new Set<string>();
+  for (let i = 0; i < 120; i += 1) {
+    const filePath = createTempAudioPath("faye-speak");
+    assert.equal(filePath.startsWith(os.tmpdir()), true);
+    assert.equal(path.extname(filePath), ".mp3");
+    assert.equal(path.basename(filePath).startsWith("faye-speak-"), true);
+    assert.equal(seen.has(filePath), false);
+    seen.add(filePath);
+  }
 });
 
 test("writeInstallAttemptReport writes a report file and returns path", async () => {

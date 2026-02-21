@@ -10,7 +10,12 @@ export async function startApiServer(): Promise<void> {
   const store = new ConfigStore(logger);
   await store.init();
 
-  const events = new EventHub();
+  const events = new EventHub(({ error, event }) => {
+    logger.warn("EVENT_LISTENER_FAILED", "Event listener threw during fanout", {
+      eventType: event.type,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  });
   const elevenLabs = new ElevenLabsClient(logger);
   const services = new ServiceControl(logger);
 

@@ -8,10 +8,12 @@ export interface AppEvent {
 }
 
 type Listener = (event: AppEvent) => void;
+type ListenerErrorReporter = (details: { error: unknown; event: AppEvent }) => void;
 
 export class EventHub {
   private readonly listeners = new Set<Listener>();
   private readonly recent: AppEvent[] = [];
+  constructor(private readonly onListenerError?: ListenerErrorReporter) {}
 
   publish(type: string, payload: Record<string, unknown>): AppEvent {
     const event: AppEvent = {
@@ -29,7 +31,8 @@ export class EventHub {
     for (const listener of [...this.listeners]) {
       try {
         listener(event);
-      } catch {
+      } catch (error) {
+        this.onListenerError?.({ error, event });
         // Keep event fanout resilient: one bad listener must not block the others.
       }
     }

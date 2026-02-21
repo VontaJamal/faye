@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -25,7 +24,7 @@ import {
 import { ServiceControl } from "./service-control";
 import { ConfigStore } from "./store";
 import type { InstallAttemptReport, ProfileCreateInput } from "./types";
-import { pathExists, writeInstallAttemptReport, writeSecret } from "./utils";
+import { createTempAudioPath, pathExists, writeInstallAttemptReport, writeSecret } from "./utils";
 
 interface ParsedArgs {
   positionals: string[];
@@ -338,10 +337,13 @@ async function synthesizeAndPlay(store: ConfigStore, text: string, profileId?: s
   }
 
   const elevenLabs = new ElevenLabsClient(createLogger());
-  const outFile = path.join(os.tmpdir(), `faye-cli-speak-${Date.now()}.mp3`);
-  await elevenLabs.synthesizeToFile(profile, text, outFile);
-  await playAudioFile(outFile);
-  await fs.unlink(outFile).catch(() => undefined);
+  const outFile = createTempAudioPath("faye-cli-speak");
+  try {
+    await elevenLabs.synthesizeToFile(profile, text, outFile);
+    await playAudioFile(outFile);
+  } finally {
+    await fs.rm(outFile, { force: true }).catch(() => undefined);
+  }
 }
 
 async function speakCommand(store: ConfigStore, args: ParsedArgs): Promise<void> {

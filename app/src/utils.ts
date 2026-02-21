@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { UxKpiReportSchema, type InstallAttemptReport, type UxKpiReport } from "./types";
@@ -135,6 +136,19 @@ export async function fileMode(filePath: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+export function createTempAudioPath(prefix: string): string {
+  const safePrefix = prefix
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  const filePrefix = safePrefix || "faye-audio";
+  const stamp = Date.now().toString(36);
+  const random = crypto.randomBytes(6).toString("hex");
+  return path.join(os.tmpdir(), `${filePrefix}-${process.pid}-${stamp}-${random}.mp3`);
 }
 
 export function slugify(input: string): string {

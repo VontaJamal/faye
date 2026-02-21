@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import express from "express";
@@ -20,6 +19,7 @@ import {
 import { RoundTripCoordinator } from "../roundTripCoordinator";
 import { UxKpiTracker } from "../ux-kpi";
 import {
+  createTempAudioPath,
   pathExists,
   writeConversationStopRequest
 } from "../utils";
@@ -104,10 +104,13 @@ export function createApiServer(deps: ApiDependencies): express.Express {
       throw new Error("E_PROFILE_NOT_FOUND");
     }
 
-    const outFile = path.join(os.tmpdir(), `faye-speak-${Date.now()}.mp3`);
-    await deps.elevenLabs.synthesizeToFile(profile, text, outFile);
-    await playAudioFile(outFile);
-    await fs.unlink(outFile).catch(() => undefined);
+    const outFile = createTempAudioPath("faye-speak");
+    try {
+      await deps.elevenLabs.synthesizeToFile(profile, text, outFile);
+      await playAudioFile(outFile);
+    } finally {
+      await fs.rm(outFile, { force: true }).catch(() => undefined);
+    }
     return { profileId: profile.id };
   };
 
