@@ -21,6 +21,8 @@ export const DEFAULT_API_BASE_URL = "http://127.0.0.1:4587" as const;
 
 export const REPO_ROOT = path.resolve(__dirname, "..", "..");
 export const DASHBOARD_PUBLIC_DIR = path.join(REPO_ROOT, "dashboard", "public");
+export const REPORTS_DIR = path.join(REPO_ROOT, ".faye", "reports");
+export const UX_KPI_REPORT_PATH = path.join(REPORTS_DIR, "ui-kpi.json");
 
 export const DEFAULT_ELEVENLABS_KEY_PATH = path.join(SECRETS_DIR, "elevenlabs-api-key.txt");
 export const DEFAULT_TELEGRAM_TOKEN_PATH = path.join(SECRETS_DIR, "telegram-bot-token.txt");

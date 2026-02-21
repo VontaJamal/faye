@@ -2,7 +2,7 @@
 
 This page is for first-time users.
 
-Goal: get a new person from zero to first successful voice session quickly.
+Goal: get a new person from zero to first successful voice session quickly (target under 10 minutes).
 
 ## Before You Start
 
@@ -16,7 +16,7 @@ If `rec` is missing:
 - macOS: `brew install sox`
 - Linux: `sudo apt install sox`
 
-## 5-Minute Setup
+## 10-Minute First Voice Setup
 
 One-liner option:
 
@@ -68,6 +68,16 @@ Success signal:
 - JSON shows `"ok": true`
 - Report path is under `.faye/reports/install-attempt-*.json`
 
+7. Open dashboard checklist and finish all four items:
+
+- `http://127.0.0.1:4587`
+- Services ready
+- API key ready
+- Profile configured
+- Voice test passed
+
+When dashboard shows `Progress: 4/4`, first-success onboarding is complete.
+
 ## Always-On Check
 
 Run:
@@ -101,6 +111,9 @@ Most common fixes:
 1. Restart listener and bridge.
 2. Re-run `./scripts/faye setup`.
 3. Confirm API key file exists and permissions are `0600`.
+4. Attach both reports when filing issues:
+   - `.faye/reports/install-attempt-*.json`
+   - `.faye/reports/ui-kpi.json`
 
 ## Share With New Users
 

@@ -204,11 +204,47 @@ input {
   color: var(--ink);
 }
 
+input.input-invalid {
+  border-color: #c2465f;
+  background: #fff6f8;
+}
+
 input:focus,
 button:focus-visible,
 summary:focus-visible {
   outline: 3px solid #9fd9d3;
   outline-offset: 2px;
+}
+
+.field-error {
+  min-height: 1rem;
+  margin-top: 0.2rem;
+  font-size: 0.79rem;
+  color: #8e2538;
+}
+
+.validation-summary {
+  display: none;
+  border: 1px solid #e2b2bb;
+  border-radius: var(--radius-md);
+  padding: 0.58rem 0.7rem;
+  background: #fff1f4;
+  color: #722231;
+  font-size: 0.86rem;
+}
+
+.validation-summary.visible {
+  display: block;
+}
+
+.validation-summary p {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+}
+
+.validation-summary ul {
+  margin: 0;
+  padding-left: 1rem;
 }
 
 .actions {
@@ -291,6 +327,76 @@ button:hover {
 
 .runtime-grid.pulse {
   animation: panelPulse 330ms ease;
+}
+
+.first-success-box {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.checklist-progress {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--accent-ink);
+}
+
+.checklist-goal {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.checklist-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.48rem;
+}
+
+.checklist-item {
+  border: 1px solid #d3dfda;
+  border-radius: 10px;
+  background: #f6fbf9;
+  padding: 0.5rem 0.62rem;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.checklist-item.good {
+  border-color: #95d8c8;
+  background: #ebf9f4;
+}
+
+.checklist-item.bad {
+  border-color: #e5c08a;
+  background: #fff8e6;
+}
+
+.checklist-label {
+  font-weight: 650;
+  color: #1e4e49;
+}
+
+.checklist-message {
+  color: #4d6561;
+  font-size: 0.8rem;
+}
+
+.checklist-metrics {
+  border-top: 1px dashed #cfd7d2;
+  padding-top: 0.45rem;
+}
+
+.checklist-metrics p {
+  margin: 0 0 0.18rem;
+  font-size: 0.8rem;
+  color: #4a5f5b;
+}
+
+.checklist-metrics p:last-child {
+  margin-bottom: 0;
 }
 
 .runtime-item {
@@ -433,6 +539,10 @@ button:hover {
 
   .panel:nth-child(4) {
     animation-delay: 180ms;
+  }
+
+  .panel:nth-child(5) {
+    animation-delay: 240ms;
   }
 
   button {

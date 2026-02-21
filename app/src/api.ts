@@ -6,7 +6,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { ZodError } from "zod";
 
 import { playAudioFile } from "./audio";
-import { runDoctor } from "./doctor";
+import { runDoctor, type DoctorReport } from "./doctor";
 import type { EventHub } from "./events";
 import { ElevenLabsClient } from "./elevenlabs";
 import type { Logger } from "./logger";
@@ -21,8 +21,11 @@ import {
   ProfileCreateInputSchema,
   ProfilePatchInputSchema,
   SetupInputSchema,
-  SpeakTestInputSchema
+  SpeakTestInputSchema,
+  type UxKpiReport,
+  type VoiceProfile
 } from "./types";
+import { UxKpiTracker } from "./ux-kpi";
 import { writeSecret } from "./utils";
 
 interface ApiDependencies {
@@ -31,6 +34,7 @@ interface ApiDependencies {
   logger: Logger;
   elevenLabs: ElevenLabsClient;
   services: ServiceControl;
+  uxKpi?: UxKpiTracker;
 }
 
 function isLoopbackAddress(address?: string): boolean {
@@ -84,6 +88,90 @@ function routeError(logger: Logger, res: Response, error: unknown): void {
   res.status(500).json({ error: "E_INTERNAL" });
 }
 
+function profileConfigured(profile: VoiceProfile): boolean {
+  const name = profile.name.trim().toLowerCase();
+  const voiceName = profile.voiceName.trim();
+  const wakeWord = profile.wakeWord.trim();
+  if (profile.voiceId === "EXAMPLE_VOICE_ID") {
+    return false;
+  }
+  if (profile.id === "starter-profile" && name === "starter profile") {
+    return false;
+  }
+  return voiceName.length > 0 && wakeWord.length > 0;
+}
+
+function onboardingSummary(args: {
+  doctor: DoctorReport;
+  listener: { code: number };
+  dashboard: { code: number };
+  bridge: { code: number };
+  activeProfile: VoiceProfile;
+  uxReport: UxKpiReport | null;
+}): {
+  checklist: {
+    bridgeRequired: boolean;
+    completed: number;
+    total: number;
+    items: Array<{ id: string; label: string; ok: boolean; message: string }>;
+  };
+  firstSetupAt: string | null;
+  firstVoiceSuccessAt: string | null;
+  timeToFirstSuccessMs: number | null;
+  lastVoiceTestAt: string | null;
+  lastVoiceTestOk: boolean | null;
+} {
+  const bridgeRequired = Boolean(args.activeProfile.telegramBotTokenPath && args.activeProfile.telegramChatId);
+  const servicesReady = args.listener.code === 0 && args.dashboard.code === 0 && (!bridgeRequired || args.bridge.code === 0);
+  const apiKeyReady =
+    args.doctor.files.activeApiKey && args.doctor.secretPermissions.activeApiKeyMode === "0600";
+  const readyProfile = profileConfigured(args.activeProfile);
+  const voiceTestPassed = args.uxReport?.lastVoiceTestOk === true;
+
+  const items = [
+    {
+      id: "services-ready",
+      label: "Services ready",
+      ok: servicesReady,
+      message: bridgeRequired
+        ? "listener + dashboard + bridge must be running"
+        : "listener + dashboard must be running (bridge optional)"
+    },
+    {
+      id: "api-key-ready",
+      label: "API key ready",
+      ok: apiKeyReady,
+      message: "active profile key file exists and has 0600 permissions"
+    },
+    {
+      id: "profile-configured",
+      label: "Profile configured",
+      ok: readyProfile,
+      message: "profile has real voice and wake-word values"
+    },
+    {
+      id: "voice-test-passed",
+      label: "Voice test passed",
+      ok: voiceTestPassed,
+      message: "latest dashboard voice test completed successfully"
+    }
+  ];
+
+  return {
+    checklist: {
+      bridgeRequired,
+      completed: items.filter((item) => item.ok).length,
+      total: items.length,
+      items
+    },
+    firstSetupAt: args.uxReport?.firstSetupAt ?? null,
+    firstVoiceSuccessAt: args.uxReport?.firstVoiceSuccessAt ?? null,
+    timeToFirstSuccessMs: args.uxReport?.timeToFirstSuccessMs ?? null,
+    lastVoiceTestAt: args.uxReport?.lastVoiceTestAt ?? null,
+    lastVoiceTestOk: args.uxReport?.lastVoiceTestOk ?? null
+  };
+}
+
 export function createApiServer(deps: ApiDependencies): express.Express {
   const app = express();
   const roundTrip = new RoundTripCoordinator({
@@ -94,6 +182,18 @@ export function createApiServer(deps: ApiDependencies): express.Express {
   const metrics = new MetricsCollector({
     events: deps.events
   });
+  const uxKpi = deps.uxKpi ?? new UxKpiTracker();
+
+  const recordUxKpi = async (operation: string, callback: () => Promise<void>): Promise<void> => {
+    try {
+      await callback();
+    } catch (error) {
+      deps.logger.warn("UX_KPI_WRITE_FAILED", "Failed to write UX KPI report", {
+        operation,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  };
 
   const normalizeOptional = (value: unknown): string | undefined => {
     if (typeof value !== "string") {
@@ -128,6 +228,14 @@ export function createApiServer(deps: ApiDependencies): express.Express {
       const dashboard = await deps.services.dashboardStatus();
       const bridge = await deps.services.bridgeStatus();
       const bridgeRuntime = await readBridgeRuntimeStatus();
+      const activeProfile = deps.store.getActiveProfile();
+      const uxReport = await uxKpi.getReport().catch((error) => {
+        deps.logger.warn("UX_KPI_READ_FAILED", "Failed to read UX KPI report", {
+          message: error instanceof Error ? error.message : String(error)
+        });
+        return null;
+      });
+
       res.json({
         ok: doctor.ok,
         doctor,
@@ -138,7 +246,15 @@ export function createApiServer(deps: ApiDependencies): express.Express {
         },
         bridgeRuntime,
         roundTrip: roundTrip.getSnapshot(),
-        metrics: metrics.getSnapshot()
+        metrics: metrics.getSnapshot(),
+        onboarding: onboardingSummary({
+          doctor,
+          listener,
+          dashboard,
+          bridge,
+          activeProfile,
+          uxReport
+        })
       });
     } catch (error) {
       routeError(deps.logger, res, error);
@@ -173,6 +289,9 @@ export function createApiServer(deps: ApiDependencies): express.Express {
   });
 
   app.post("/v1/setup", async (req, res) => {
+    await recordUxKpi("setup-attempt", async () => {
+      await uxKpi.recordSetupAttempt();
+    });
     try {
       const raw = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
       const setup = SetupInputSchema.parse({
@@ -214,9 +333,15 @@ export function createApiServer(deps: ApiDependencies): express.Express {
         profileName: profile.name,
         listenerRestartCode: restart.code
       });
+      await recordUxKpi("setup-success", async () => {
+        await uxKpi.recordSetupSuccess();
+      });
 
       res.status(201).json({ profile, listenerRestart: restart });
     } catch (error) {
+      await recordUxKpi("setup-failure", async () => {
+        await uxKpi.recordSetupFailure(error);
+      });
       routeError(deps.logger, res, error);
     }
   });
@@ -281,12 +406,21 @@ export function createApiServer(deps: ApiDependencies): express.Express {
   });
 
   app.post("/v1/speak/test", async (req, res) => {
+    await recordUxKpi("voice-test-attempt", async () => {
+      await uxKpi.recordVoiceTestAttempt();
+    });
     try {
       const parsed = SpeakTestInputSchema.parse(req.body ?? {});
       const played = await speakWithProfile(parsed.text, parsed.profileId);
       deps.events.publish("speak_test", { profileId: played.profileId, text: parsed.text });
+      await recordUxKpi("voice-test-success", async () => {
+        await uxKpi.recordVoiceTestSuccess();
+      });
       res.json({ ok: true, profileId: played.profileId });
     } catch (error) {
+      await recordUxKpi("voice-test-failure", async () => {
+        await uxKpi.recordVoiceTestFailure(error);
+      });
       routeError(deps.logger, res, error);
     }
   });
@@ -317,21 +451,43 @@ export function createApiServer(deps: ApiDependencies): express.Express {
   });
 
   app.post("/v1/listener/restart", async (_req, res) => {
+    await recordUxKpi("listener-restart-attempt", async () => {
+      await uxKpi.recordListenerRestartAttempt();
+    });
     try {
       const result = await deps.services.restartListener();
       deps.events.publish("listener_restarted", { code: result.code });
+      if (result.code !== 0) {
+        await recordUxKpi("listener-restart-failure", async () => {
+          await uxKpi.recordListenerRestartFailure(result.stderr || result.stdout || "non-zero exit");
+        });
+      }
       res.json({ result });
     } catch (error) {
+      await recordUxKpi("listener-restart-failure", async () => {
+        await uxKpi.recordListenerRestartFailure(error);
+      });
       routeError(deps.logger, res, error);
     }
   });
 
   app.post("/v1/bridge/restart", async (_req, res) => {
+    await recordUxKpi("bridge-restart-attempt", async () => {
+      await uxKpi.recordBridgeRestartAttempt();
+    });
     try {
       const result = await deps.services.restartBridge();
       deps.events.publish("bridge_restarted", { code: result.code });
+      if (result.code !== 0) {
+        await recordUxKpi("bridge-restart-failure", async () => {
+          await uxKpi.recordBridgeRestartFailure(result.stderr || result.stdout || "non-zero exit");
+        });
+      }
       res.json({ result });
     } catch (error) {
+      await recordUxKpi("bridge-restart-failure", async () => {
+        await uxKpi.recordBridgeRestartFailure(error);
+      });
       routeError(deps.logger, res, error);
     }
   });

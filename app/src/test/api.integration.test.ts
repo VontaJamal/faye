@@ -1,11 +1,15 @@
 import { once } from "node:events";
+import fs from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApiServer } from "../api";
 import { EventHub } from "../events";
 import type { RuntimeConfig, VoiceProfile } from "../types";
+import { UxKpiTracker } from "../ux-kpi";
 
 interface MutableProfileInput {
   id: string;
@@ -176,11 +180,23 @@ class FakeStore {
   async setEventTransport(mode: "local" | "hybrid"): Promise<void> {
     this.config.eventTransport = mode;
   }
+
+  enableTelegramForActiveProfile(): void {
+    const profile = this.config.profiles.find((item) => item.id === this.config.activeProfileId);
+    if (!profile) {
+      throw new Error("E_PROFILE_NOT_FOUND");
+    }
+
+    profile.telegramBotTokenPath = "~/.openclaw/secrets/telegram-bot-token.txt";
+    profile.telegramChatId = "123456789";
+    profile.updatedAt = nowIso();
+  }
 }
 
 class FakeServices {
   listenerRestarts = 0;
   bridgeRestarts = 0;
+  bridgeStatusCode = 0;
 
   async listenerStatus(): Promise<{ code: number; stdout: string; stderr: string }> {
     return { code: 0, stdout: "listener: running", stderr: "" };
@@ -191,7 +207,11 @@ class FakeServices {
   }
 
   async bridgeStatus(): Promise<{ code: number; stdout: string; stderr: string }> {
-    return { code: 0, stdout: "bridge: running", stderr: "" };
+    return {
+      code: this.bridgeStatusCode,
+      stdout: this.bridgeStatusCode === 0 ? "bridge: running" : "bridge: stopped",
+      stderr: ""
+    };
   }
 
   async restartListener(): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -225,13 +245,16 @@ async function startHarness(): Promise<{
   const store = new FakeStore();
   const events = new EventHub();
   const services = new FakeServices();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "faye-api-test-"));
+  const uxKpiPath = path.join(tempDir, "ui-kpi.json");
 
   const app = createApiServer({
     store: store as never,
     events: events as never,
     logger: fakeLogger as never,
     elevenLabs: fakeElevenLabs as never,
-    services: services as never
+    services: services as never,
+    uxKpi: new UxKpiTracker({ reportPath: uxKpiPath })
   });
 
   const server = http.createServer(app);
@@ -250,6 +273,7 @@ async function startHarness(): Promise<{
     close: async () => {
       server.close();
       await once(server, "close");
+      await fs.rm(tempDir, { recursive: true, force: true });
     },
     store,
     events,
@@ -299,11 +323,76 @@ test("health endpoint returns bridge runtime field", async () => {
       bridgeRuntime: unknown;
       roundTrip: { activeSessions: number };
       metrics: { eventCounts: { wakeDetections: number } };
+      onboarding: {
+        checklist: {
+          bridgeRequired: boolean;
+          completed: number;
+          total: number;
+          items: Array<{ id: string; ok: boolean; label: string; message: string }>;
+        };
+        firstSetupAt: string | null;
+        firstVoiceSuccessAt: string | null;
+        timeToFirstSuccessMs: number | null;
+        lastVoiceTestAt: string | null;
+        lastVoiceTestOk: boolean | null;
+      };
     };
     assert.equal(typeof body.ok, "boolean");
     assert.equal("bridgeRuntime" in body, true);
     assert.equal(typeof body.roundTrip.activeSessions, "number");
     assert.equal(typeof body.metrics.eventCounts.wakeDetections, "number");
+    assert.equal(typeof body.onboarding.checklist.bridgeRequired, "boolean");
+    assert.equal(Array.isArray(body.onboarding.checklist.items), true);
+    assert.equal(body.onboarding.checklist.total, 4);
+    assert.equal(body.onboarding.firstVoiceSuccessAt, null);
+    assert.equal(body.onboarding.lastVoiceTestOk, null);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("health onboarding marks bridge optional when telegram is not configured", async () => {
+  const harness = await startHarness();
+  try {
+    const response = await requestJson(harness.baseUrl, "/v1/health");
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      onboarding: {
+        checklist: {
+          bridgeRequired: boolean;
+          items: Array<{ id: string; ok: boolean }>;
+        };
+      };
+    };
+
+    const servicesReady = body.onboarding.checklist.items.find((item) => item.id === "services-ready");
+    assert.equal(body.onboarding.checklist.bridgeRequired, false);
+    assert.equal(servicesReady?.ok, true);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("health onboarding requires bridge when telegram is configured", async () => {
+  const harness = await startHarness();
+  try {
+    harness.store.enableTelegramForActiveProfile();
+    harness.services.bridgeStatusCode = 1;
+
+    const response = await requestJson(harness.baseUrl, "/v1/health");
+    assert.equal(response.status, 200);
+    const body = response.body as {
+      onboarding: {
+        checklist: {
+          bridgeRequired: boolean;
+          items: Array<{ id: string; ok: boolean }>;
+        };
+      };
+    };
+
+    const servicesReady = body.onboarding.checklist.items.find((item) => item.id === "services-ready");
+    assert.equal(body.onboarding.checklist.bridgeRequired, true);
+    assert.equal(servicesReady?.ok, false);
   } finally {
     await harness.close();
   }

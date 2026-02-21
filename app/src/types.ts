@@ -125,6 +125,35 @@ export const InstallAttemptReportSchema = z.object({
   notes: z.array(z.string().min(1).max(240)).default([])
 });
 
+export const UxKpiFailureSchema = z.object({
+  at: z.string().datetime(),
+  action: z.enum(["setup", "voice-test", "listener-restart", "bridge-restart"]),
+  error: z.string().min(1).max(280)
+});
+
+export const UxKpiReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  generatedAt: z.string().datetime(),
+  firstSetupAt: z.string().datetime().nullable(),
+  firstVoiceSuccessAt: z.string().datetime().nullable(),
+  lastVoiceTestAt: z.string().datetime().nullable(),
+  lastVoiceTestOk: z.boolean().nullable(),
+  timeToFirstSuccessMs: z.number().int().min(0).nullable(),
+  counters: z.object({
+    setupAttempts: z.number().int().min(0),
+    setupSuccesses: z.number().int().min(0),
+    setupFailures: z.number().int().min(0),
+    listenerRestartAttempts: z.number().int().min(0),
+    listenerRestartFailures: z.number().int().min(0),
+    bridgeRestartAttempts: z.number().int().min(0),
+    bridgeRestartFailures: z.number().int().min(0),
+    voiceTestAttempts: z.number().int().min(0),
+    voiceTestSuccesses: z.number().int().min(0),
+    voiceTestFailures: z.number().int().min(0)
+  }),
+  recentFailures: z.array(UxKpiFailureSchema).max(20)
+});
+
 export type VoiceProfile = z.infer<typeof VoiceProfileSchema>;
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 export type ProfileCreateInput = z.infer<typeof ProfileCreateInputSchema>;
@@ -134,6 +163,8 @@ export type SetupInput = z.infer<typeof SetupInputSchema>;
 export type LocalIngestEvent = z.infer<typeof LocalIngestEventSchema>;
 export type InstallAttemptStep = z.infer<typeof InstallAttemptStepSchema>;
 export type InstallAttemptReport = z.infer<typeof InstallAttemptReportSchema>;
+export type UxKpiFailure = z.infer<typeof UxKpiFailureSchema>;
+export type UxKpiReport = z.infer<typeof UxKpiReportSchema>;
 
 export function normalizeVariants(wakeWord: string, variants?: string[]): string[] {
   const source = variants && variants.length > 0 ? variants : [wakeWord];

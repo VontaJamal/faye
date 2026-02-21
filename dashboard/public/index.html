@@ -29,16 +29,18 @@
         <h2 id="setup-title">Guided Setup</h2>
         <p class="panel-intro">Save your active profile once, then use quick actions above for daily checks and recovery.</p>
 
-        <form id="setup-form" class="stack-form">
+        <form id="setup-form" class="stack-form" novalidate>
           <div class="form-group">
             <h3>Identity</h3>
             <label>
               Profile Name
-              <input name="profileName" type="text" value="Primary Voice" required />
+              <input id="setup-profile-name" name="profileName" data-setup-field="profileName" type="text" value="Primary Voice" required maxlength="80" />
+              <small class="field-error" data-setup-error="profileName" aria-live="polite"></small>
             </label>
             <label>
               Wake Word
-              <input name="wakeWord" type="text" value="Faye Arise" required />
+              <input id="setup-wake-word" name="wakeWord" data-setup-field="wakeWord" type="text" value="Faye Arise" required maxlength="120" />
+              <small class="field-error" data-setup-error="wakeWord" aria-live="polite"></small>
             </label>
           </div>
 
@@ -46,15 +48,18 @@
             <h3>Voice Provider</h3>
             <label>
               ElevenLabs API Key
-              <input name="apiKey" type="password" autocomplete="off" />
+              <input id="setup-api-key" name="apiKey" data-setup-field="apiKey" type="password" autocomplete="off" maxlength="300" />
+              <small class="field-error" data-setup-error="apiKey" aria-live="polite"></small>
             </label>
             <label>
               Voice ID
-              <input name="voiceId" type="text" required />
+              <input id="setup-voice-id" name="voiceId" data-setup-field="voiceId" type="text" required maxlength="128" />
+              <small class="field-error" data-setup-error="voiceId" aria-live="polite"></small>
             </label>
             <label>
               Voice Name
-              <input name="voiceName" type="text" required />
+              <input id="setup-voice-name" name="voiceName" data-setup-field="voiceName" type="text" required maxlength="128" />
+              <small class="field-error" data-setup-error="voiceName" aria-live="polite"></small>
             </label>
           </div>
 
@@ -62,13 +67,17 @@
             <h3>Optional Bridge</h3>
             <label>
               Telegram Bot Token (optional)
-              <input name="telegramToken" type="password" autocomplete="off" />
+              <input id="setup-telegram-token" name="telegramToken" data-setup-field="telegramToken" type="password" autocomplete="off" maxlength="300" />
+              <small class="field-error" data-setup-error="telegramToken" aria-live="polite"></small>
             </label>
             <label>
               Telegram Chat ID (optional)
-              <input name="telegramChatId" type="text" />
+              <input id="setup-telegram-chat-id" name="telegramChatId" data-setup-field="telegramChatId" type="text" maxlength="64" />
+              <small class="field-error" data-setup-error="telegramChatId" aria-live="polite"></small>
             </label>
           </div>
+
+          <div id="setup-validation-summary" class="validation-summary" role="alert" aria-live="polite"></div>
 
           <div class="actions">
             <button type="submit">Save Setup</button>
@@ -76,6 +85,12 @@
         </form>
 
         <p id="setup-status" class="status"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="first-success-title">
+        <h2 id="first-success-title">First Success Checklist</h2>
+        <p class="panel-intro">Talk to your agent in under 10 minutes by completing each readiness check.</p>
+        <div id="first-success-checklist" class="first-success-box" aria-live="polite"></div>
       </section>
 
       <section class="panel" aria-labelledby="profiles-title">

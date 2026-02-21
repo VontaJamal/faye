@@ -30,6 +30,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Security Pattern Check
         run: ./scripts/security-check.sh
 
@@ -38,6 +41,9 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Dashboard Smoke
+        run: npm run test:dashboard
 
       - name: Docs Contract
         run: ./scripts/docs-contract-check.sh
@@ -75,11 +81,17 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
       - name: Build
         run: npm run build
 
       - name: Test
         run: npm test
+
+      - name: Dashboard Smoke
+        run: npm run test:dashboard
 
       - name: Install smoke (test mode)
         env:
