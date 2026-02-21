@@ -2,12 +2,12 @@ import type { AppEvent, EventHub } from "./events";
 import type { Logger } from "./logger";
 import { expandHomePath, pathExists, readSecret } from "./utils";
 
-type SessionState = "wake_detected" | "awaiting_speak" | "speak_received";
+export type RoundTripSessionState = "wake_detected" | "awaiting_speak" | "speak_received";
 type SpokenStatus = "ok" | "error" | "duplicate";
 
 interface SessionRecord {
   id: string;
-  state: SessionState;
+  state: RoundTripSessionState;
   createdAtMs: number;
   updatedAtMs: number;
   retryCount: number;
@@ -35,7 +35,7 @@ export interface RoundTripSnapshot {
   activeSessions: number;
   pendingSessions: Array<{
     sessionId: string;
-    state: SessionState;
+    state: RoundTripSessionState;
     retryCount: number;
     ageMs: number;
     updatedAt: string;
@@ -48,6 +48,14 @@ export interface RoundTripSnapshot {
   };
   lastCompleted: CompletedSummary | null;
   lastTimeout: TimedOutSummary | null;
+}
+
+export interface RoundTripSessionStatus {
+  sessionId: string;
+  pending: boolean;
+  state: RoundTripSessionState | null;
+  retryCount: number;
+  updatedAt: string | null;
 }
 
 interface ActiveProfileProvider {
@@ -178,6 +186,27 @@ export class RoundTripCoordinator {
       totals: { ...this.totals },
       lastCompleted: this.lastCompleted ? { ...this.lastCompleted } : null,
       lastTimeout: this.lastTimeout ? { ...this.lastTimeout } : null
+    };
+  }
+
+  getSessionStatus(sessionId: string): RoundTripSessionStatus {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return {
+        sessionId,
+        pending: false,
+        state: null,
+        retryCount: 0,
+        updatedAt: null
+      };
+    }
+
+    return {
+      sessionId,
+      pending: true,
+      state: session.state,
+      retryCount: session.retryCount,
+      updatedAt: formatIso(session.updatedAtMs)
     };
   }
 

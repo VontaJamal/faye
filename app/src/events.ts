@@ -26,8 +26,12 @@ export class EventHub {
       this.recent.shift();
     }
 
-    for (const listener of this.listeners) {
-      listener(event);
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(event);
+      } catch {
+        // Keep event fanout resilient: one bad listener must not block the others.
+      }
     }
 
     return event;
