@@ -404,6 +404,43 @@ button:hover {
   gap: 0.6rem;
 }
 
+.conversation-badges {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.conversation-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #cbdbd6;
+  background: #f1f8f6;
+  color: #2f5954;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.26rem 0.56rem;
+}
+
+.conversation-badge.good {
+  border-color: #9cd4ce;
+  background: #e7f7f4;
+  color: #125b55;
+}
+
+.conversation-badge.warn {
+  border-color: #e1ca8d;
+  background: #fff6dc;
+  color: #73511f;
+}
+
+.conversation-badge.bad {
+  border-color: #e1b4bc;
+  background: #fff0f2;
+  color: #7a2b3a;
+}
+
 .conversation-headline {
   border: 1px solid #d4e2de;
   border-radius: 10px;
@@ -472,6 +509,58 @@ button:hover {
 
 .conversation-turn p:last-child {
   margin-bottom: 0;
+}
+
+.conversation-context-title {
+  margin: 0.72rem 0 0.38rem;
+  font-size: 0.86rem;
+  letter-spacing: 0.02em;
+  color: #1f4a45;
+}
+
+.conversation-context {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.44rem;
+}
+
+.conversation-context-item {
+  border: 1px solid #d2e0dc;
+  border-radius: 10px;
+  background: #fbfdfc;
+  padding: 0.48rem 0.56rem;
+}
+
+.conversation-context-item.user {
+  border-color: #b6d8d1;
+  background: #f3fbf8;
+}
+
+.conversation-context-item.assistant {
+  border-color: #b7d4ea;
+  background: #f3f8fd;
+}
+
+.conversation-context-item.system {
+  border-color: #dbcda9;
+  background: #fff9eb;
+}
+
+.conversation-context-meta {
+  margin: 0 0 0.16rem;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  color: #4b6661;
+}
+
+.conversation-context-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #2f5a55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .runtime-item {

@@ -85,7 +85,7 @@ async function json(route: Route, body: unknown, status = 200): Promise<void> {
 
 function healthFromState(state: MockState): Record<string, unknown> {
   const activeSessionState = state.conversationEnded ? "ended" : "awaiting_user";
-  const endReason = state.conversationEnded ? "dashboard_manual_end" : undefined;
+  const endReason = state.conversationEnded ? "external_stop" : undefined;
   return {
     ok: true,
     doctor: {
@@ -164,6 +164,11 @@ function healthFromState(state: MockState): Record<string, unknown> {
       },
       activeSessions: state.conversationEnded ? 0 : 1,
       retainedSessions: 1,
+      activeSessionId: state.conversationEnded ? null : "session-1",
+      activeTurn: 2,
+      lastTurnAt: "2026-02-21T00:02:00.000Z",
+      lastEndReason: state.conversationEnded ? "external_stop" : null,
+      stopRequested: state.conversationEnded,
       totals: {
         sessionsOpened: 1,
         sessionsEnded: state.conversationEnded ? 1 : 0,
@@ -173,14 +178,14 @@ function healthFromState(state: MockState): Record<string, unknown> {
       },
       endReasons: state.conversationEnded
         ? {
-            dashboard_manual_end: 1
+            external_stop: 1
           }
         : {},
       lastEnded: state.conversationEnded
         ? {
             sessionId: "session-1",
             at: "2026-02-21T00:06:00.000Z",
-            reason: "dashboard_manual_end"
+            reason: "external_stop"
           }
         : null,
       sessions: [
@@ -192,6 +197,8 @@ function healthFromState(state: MockState): Record<string, unknown> {
           expiresAt: "2026-02-21T00:20:00.000Z",
           expiresInMs: 600000,
           endReason,
+          lastTurnAt: "2026-02-21T00:02:00.000Z",
+          stopRequested: state.conversationEnded,
           totalTurns: 2,
           retainedTurns: 2,
           turnLimit: 8,
@@ -326,7 +333,56 @@ async function installDashboardApiMocks(page: Page): Promise<MockState> {
       session: {
         sessionId: "session-1",
         state: "ended",
-        endReason: "dashboard_manual_end"
+        endReason: "external_stop"
+      },
+      endReason: "external_stop",
+      requestedReason: "external_stop"
+    });
+  });
+
+  await page.route("**/v1/conversation/*/context**", async (route) => {
+    await json(route, {
+      context: {
+        sessionId: "session-1",
+        state: state.conversationEnded ? "ended" : "awaiting_user",
+        expiresAt: "2026-02-21T00:20:00.000Z",
+        expiresInMs: 600000,
+        turnPolicy: {
+          baseTurns: 8,
+          extendBy: 4,
+          hardCap: 16
+        },
+        turnProgress: {
+          current: 2,
+          limit: 8,
+          remaining: 6
+        },
+        endReason: state.conversationEnded ? "external_stop" : undefined,
+        lastTurnAt: "2026-02-21T00:02:00.000Z",
+        stopRequested: state.conversationEnded,
+        messages: [
+          {
+            role: "user",
+            text: "Hey Faye",
+            at: "2026-02-21T00:01:00.000Z",
+            turn: 1
+          },
+          {
+            role: "assistant",
+            text: "Hi there",
+            at: "2026-02-21T00:01:03.000Z",
+            turn: 1,
+            status: "ok"
+          },
+          {
+            role: "system",
+            text: "Action needs confirmation: listener_restart",
+            at: "2026-02-21T00:01:10.000Z",
+            status: "needs_confirm",
+            action: "listener_restart",
+            code: "confirm_required"
+          }
+        ]
       }
     });
   });
@@ -344,6 +400,7 @@ test("page load renders status chips and first-success checklist", async ({ page
   await expect(page.locator("#first-success-checklist")).toContainText("Voice test passed");
   await expect(page.locator("#conversation-state")).toContainText("Turn progress: 2/8");
   await expect(page.locator("#conversation-turns")).toContainText("Turn 1");
+  await expect(page.locator("#conversation-context")).toContainText("Action needs confirmation");
 });
 
 test("invalid setup blocks submit with field-level errors", async ({ page }) => {
@@ -421,8 +478,9 @@ test("conversation end button terminates active session", async ({ page }) => {
   await page.goto("/");
 
   await page.click("#conversation-end");
-  await expect(page.locator("#setup-status")).toContainText("Conversation session ended");
+  await expect(page.locator("#setup-status")).toContainText("Force stop requested");
   await expect(page.locator("#conversation-state")).toContainText("Status: Ended");
+  await expect(page.locator("#conversation-badges")).toContainText("End Reason: external_stop");
 
   expect(state.conversationEnds).toBe(1);
 });
