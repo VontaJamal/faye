@@ -3,6 +3,11 @@ name: Design Preflight Check
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+    paths:
+      - "dashboard/**"
+      - "design/**"
+      - "docs/site-soul-brief.md"
+      - ".github/workflows/design-preflight-check.yml"
 
 permissions:
   contents: read

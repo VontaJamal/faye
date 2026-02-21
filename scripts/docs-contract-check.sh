@@ -65,6 +65,11 @@ for file in "${required[@]}"; do
   [[ -f "$ROOT_DIR/$file" ]] || { echo "Missing required file: $file"; exit 1; }
 done
 
+if ! grep -q "paths:" "$ROOT_DIR/.github/workflows/design-preflight-check.yml" || ! grep -Fq "dashboard/**" "$ROOT_DIR/.github/workflows/design-preflight-check.yml"; then
+  echo "design-preflight-check workflow must scope pull_request paths to include dashboard/**"
+  exit 1
+fi
+
 grep -q "3-step" "$ROOT_DIR/README.md" || { echo "README missing 3-step onboarding text"; exit 1; }
 grep -q "Install In One Command" "$ROOT_DIR/README.md" || { echo "README missing one-command install section"; exit 1; }
 grep -q "OpenClaw Second Install" "$ROOT_DIR/README.md" || { echo "README missing OpenClaw second-install section"; exit 1; }
