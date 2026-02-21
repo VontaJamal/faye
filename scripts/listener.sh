@@ -464,6 +464,7 @@ wait_for_roundtrip_completion() {
   local timeout_seconds="$2"
   local started_at
   local encoded_session
+  local session_json_escaped
   encoded_session="$(python3 - "$session_id" <<'PY'
 import sys
 import urllib.parse
@@ -471,6 +472,7 @@ import urllib.parse
 print(urllib.parse.quote(sys.argv[1], safe=""))
 PY
 )"
+  session_json_escaped="$(json_escape "$session_id")"
   started_at=$(date +%s)
 
   while true; do
@@ -478,29 +480,9 @@ PY
     payload="$(curl -sS --max-time 4 "${LOCAL_API_BASE_URL}/v1/roundtrip/${encoded_session}/status" || true)"
 
     if [[ -n "$payload" ]]; then
-      local pending
-      pending=$(python3 - "$session_id" "$payload" <<'PY'
-import json
-import sys
-
-target = sys.argv[1]
-raw = sys.argv[2]
-
-try:
-    doc = json.loads(raw)
-except Exception:
-    print("1")
-    sys.exit(0)
-
-if str(doc.get("sessionId", "")).strip() != target:
-    print("1")
-    sys.exit(0)
-
-print("1" if doc.get("pending") is True else "0")
-PY
-)
-
-      if [[ "$pending" == "0" ]]; then
+      local compact_payload
+      compact_payload="$(printf '%s' "$payload" | tr -d '[:space:]')"
+      if [[ "$compact_payload" == *"\"sessionId\":${session_json_escaped}"* ]] && [[ "$compact_payload" == *"\"pending\":false"* ]]; then
         return 0
       fi
     fi
