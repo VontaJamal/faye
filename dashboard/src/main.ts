@@ -91,13 +91,32 @@ interface MetricsSnapshot {
   };
 }
 
+interface ServiceStatusResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
 interface HealthResponse {
   ok: boolean;
-  doctor: unknown;
-  services: unknown;
+  doctor?: {
+    ok?: boolean;
+  };
+  services?: {
+    listener?: ServiceStatusResult;
+    dashboard?: ServiceStatusResult;
+    bridge?: ServiceStatusResult;
+  };
   bridgeRuntime: BridgeRuntimeStatus | null;
   roundTrip?: RoundTripSnapshot;
   metrics?: MetricsSnapshot;
+}
+
+interface StreamEvent {
+  id: string;
+  type: string;
+  time: string;
+  payload: Record<string, unknown>;
 }
 
 const setupStatus = document.querySelector<HTMLParagraphElement>("#setup-status");
@@ -105,6 +124,7 @@ const profileList = document.querySelector<HTMLDivElement>("#profile-list");
 const healthPre = document.querySelector<HTMLPreElement>("#health");
 const eventsList = document.querySelector<HTMLUListElement>("#events");
 const runtimeStatus = document.querySelector<HTMLDivElement>("#runtime-status");
+const serviceSummary = document.querySelector<HTMLDivElement>("#service-summary");
 
 function setStatus(message: string, error = false): void {
   if (!setupStatus) {
@@ -170,6 +190,87 @@ function formatTimestamp(value?: string): string {
   return date.toLocaleString();
 }
 
+function formatPercent(value: number | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function appendEmptyState(container: HTMLElement, text: string): void {
+  const div = document.createElement("div");
+  div.className = "empty-state";
+  div.textContent = text;
+  container.append(div);
+}
+
+function makeChip(label: string, value: string, state: "good" | "warn" | "bad" = "warn"): HTMLElement {
+  const chip = document.createElement("span");
+  chip.className = `status-chip ${state}`;
+  chip.textContent = `${label}: ${value}`;
+  return chip;
+}
+
+function classifyService(result?: ServiceStatusResult): "good" | "bad" {
+  return result?.code === 0 ? "good" : "bad";
+}
+
+function classifyErrorRate(value: number | null): "good" | "warn" | "bad" {
+  if (value === null) {
+    return "warn";
+  }
+  if (value <= 0.02) {
+    return "good";
+  }
+  if (value <= 0.06) {
+    return "warn";
+  }
+  return "bad";
+}
+
+function classifyLatency(value: number | null): "good" | "warn" | "bad" {
+  if (value === null) {
+    return "warn";
+  }
+  if (value <= 2500) {
+    return "good";
+  }
+  if (value <= 5000) {
+    return "warn";
+  }
+  return "bad";
+}
+
+function renderServiceSummary(health: HealthResponse): void {
+  if (!serviceSummary) {
+    return;
+  }
+
+  serviceSummary.innerHTML = "";
+  const listener = health.services?.listener;
+  const dashboard = health.services?.dashboard;
+  const bridge = health.services?.bridge;
+
+  serviceSummary.append(
+    makeChip("Doctor", health.doctor?.ok === true ? "ok" : "attention", health.doctor?.ok === true ? "good" : "bad"),
+    makeChip("Listener", listener?.code === 0 ? "running" : "down", classifyService(listener)),
+    makeChip("Dashboard", dashboard?.code === 0 ? "running" : "down", classifyService(dashboard)),
+    makeChip("Bridge", bridge?.code === 0 ? "running" : "down", classifyService(bridge)),
+    makeChip(
+      "p95",
+      health.metrics?.latency.p95Ms === null || health.metrics?.latency.p95Ms === undefined
+        ? "n/a"
+        : `${health.metrics.latency.p95Ms}ms`,
+      classifyLatency(health.metrics?.latency.p95Ms ?? null)
+    ),
+    makeChip(
+      "Error Rate",
+      formatPercent(health.metrics?.errorRate.value ?? null),
+      classifyErrorRate(health.metrics?.errorRate.value ?? null)
+    )
+  );
+}
+
 function renderRuntimeCell(label: string, value: string): HTMLElement {
   const item = document.createElement("div");
   item.className = "runtime-item";
@@ -184,21 +285,16 @@ function renderRuntimeCell(label: string, value: string): HTMLElement {
   return item;
 }
 
-function formatPercent(value: number | null): string {
-  if (value === null) {
-    return "n/a";
-  }
-  return `${(value * 100).toFixed(1)}%`;
-}
-
 function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null, roundTrip?: RoundTripSnapshot, metrics?: MetricsSnapshot): void {
   if (!runtimeStatus) {
     return;
   }
 
+  runtimeStatus.classList.remove("pulse");
   runtimeStatus.innerHTML = "";
+
   if (!runtime) {
-    runtimeStatus.append(renderRuntimeCell("Bridge Runtime", "No runtime data yet."));
+    appendEmptyState(runtimeStatus, "No bridge runtime data yet.");
     return;
   }
 
@@ -219,36 +315,34 @@ function renderRuntimeStatus(runtime: BridgeRuntimeStatus | null, roundTrip?: Ro
     )
   );
 
-  if (!roundTrip) {
-    return;
+  if (roundTrip) {
+    const lastCompleted = roundTrip.lastCompleted
+      ? `${roundTrip.lastCompleted.status} @ ${formatTimestamp(roundTrip.lastCompleted.at)}`
+      : "n/a";
+    const lastTimeout = roundTrip.lastTimeout
+      ? `${roundTrip.lastTimeout.reason} @ ${formatTimestamp(roundTrip.lastTimeout.at)}`
+      : "n/a";
+
+    runtimeStatus.append(
+      renderRuntimeCell("Round-Trip Active", String(roundTrip.activeSessions)),
+      renderRuntimeCell("Round-Trip Retries", String(roundTrip.totals.retriesSent)),
+      renderRuntimeCell("Round-Trip Timeouts", String(roundTrip.totals.timeouts)),
+      renderRuntimeCell("Round-Trip Completed", String(roundTrip.totals.completed)),
+      renderRuntimeCell("Round-Trip Last Completed", lastCompleted),
+      renderRuntimeCell("Round-Trip Last Timeout", lastTimeout)
+    );
   }
 
-  const lastCompleted = roundTrip.lastCompleted
-    ? `${roundTrip.lastCompleted.status} @ ${formatTimestamp(roundTrip.lastCompleted.at)}`
-    : "n/a";
-  const lastTimeout = roundTrip.lastTimeout
-    ? `${roundTrip.lastTimeout.reason} @ ${formatTimestamp(roundTrip.lastTimeout.at)}`
-    : "n/a";
-
-  runtimeStatus.append(
-    renderRuntimeCell("Round-Trip Active", String(roundTrip.activeSessions)),
-    renderRuntimeCell("Round-Trip Retries", String(roundTrip.totals.retriesSent)),
-    renderRuntimeCell("Round-Trip Timeouts", String(roundTrip.totals.timeouts)),
-    renderRuntimeCell("Round-Trip Completed", String(roundTrip.totals.completed)),
-    renderRuntimeCell("Round-Trip Last Completed", lastCompleted),
-    renderRuntimeCell("Round-Trip Last Timeout", lastTimeout)
-  );
-
-  if (!metrics) {
-    return;
+  if (metrics) {
+    runtimeStatus.append(
+      renderRuntimeCell("Wake Detections", String(metrics.eventCounts.wakeDetections)),
+      renderRuntimeCell("Spoken OK", String(metrics.roundTrip.bridgeSpokenOk)),
+      renderRuntimeCell("p95 Latency", metrics.latency.p95Ms === null ? "n/a" : `${metrics.latency.p95Ms}ms`),
+      renderRuntimeCell("Error Rate", formatPercent(metrics.errorRate.value))
+    );
   }
 
-  runtimeStatus.append(
-    renderRuntimeCell("Wake Detections", String(metrics.eventCounts.wakeDetections)),
-    renderRuntimeCell("Spoken OK", String(metrics.roundTrip.bridgeSpokenOk)),
-    renderRuntimeCell("p95 Latency", metrics.latency.p95Ms === null ? "n/a" : `${metrics.latency.p95Ms}ms`),
-    renderRuntimeCell("Error Rate", formatPercent(metrics.errorRate.value))
-  );
+  requestAnimationFrame(() => runtimeStatus.classList.add("pulse"));
 }
 
 function appendProfileLine(container: HTMLElement, text: string, strong = false): void {
@@ -260,6 +354,7 @@ function appendProfileLine(container: HTMLElement, text: string, strong = false)
 function profileCard(profile: Profile, activeProfileId: string): HTMLElement {
   const card = document.createElement("article");
   card.className = `profile-card ${profile.id === activeProfileId ? "active" : ""}`;
+
   appendProfileLine(card, profile.name, true);
   appendProfileLine(card, `ID: ${profile.id}`);
   appendProfileLine(card, `Voice: ${profile.voiceName} (${profile.voiceId})`);
@@ -305,6 +400,7 @@ function profileCard(profile: Profile, activeProfileId: string): HTMLElement {
       await api(`/v1/profiles/${profile.id}/activate`, { method: "POST" });
       setStatus(`Activated ${profile.name}`);
       await refreshProfiles();
+      await refreshHealth();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error), true);
     }
@@ -321,6 +417,7 @@ function profileCard(profile: Profile, activeProfileId: string): HTMLElement {
       await api(`/v1/profiles/${profile.id}`, { method: "DELETE" });
       setStatus(`Deleted ${profile.name}`);
       await refreshProfiles();
+      await refreshHealth();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error), true);
     }
@@ -339,6 +436,11 @@ async function refreshProfiles(): Promise<void> {
   const data = await api<ProfilesResponse>("/v1/profiles");
   profileList.innerHTML = "";
 
+  if (data.profiles.length === 0) {
+    appendEmptyState(profileList, "No profiles yet. Save setup above to create your first profile.");
+    return;
+  }
+
   for (const profile of data.profiles) {
     profileList.append(profileCard(profile, data.activeProfileId));
   }
@@ -352,6 +454,102 @@ async function refreshHealth(): Promise<void> {
   const health = await api<HealthResponse>("/v1/health");
   healthPre.textContent = JSON.stringify(health, null, 2);
   renderRuntimeStatus(health.bridgeRuntime, health.roundTrip, health.metrics);
+  renderServiceSummary(health);
+}
+
+function renderEvent(payload: StreamEvent): HTMLElement {
+  const item = document.createElement("li");
+  item.className = "event-item";
+
+  const top = document.createElement("div");
+  top.className = "event-top";
+
+  const type = document.createElement("span");
+  type.className = "event-type";
+  type.textContent = payload.type;
+
+  const time = document.createElement("span");
+  time.className = "event-time";
+  time.textContent = formatTimestamp(payload.time);
+
+  top.append(type, time);
+
+  const pre = document.createElement("pre");
+  pre.className = "event-payload";
+  pre.textContent = JSON.stringify(payload.payload, null, 2);
+
+  item.append(top, pre);
+  return item;
+}
+
+function bindEvents(): void {
+  if (!eventsList) {
+    return;
+  }
+
+  const source = new EventSource("/v1/events");
+  source.onmessage = (event) => {
+    try {
+      const parsed = JSON.parse(event.data) as StreamEvent;
+      eventsList.prepend(renderEvent(parsed));
+    } catch {
+      const fallback = document.createElement("li");
+      fallback.className = "event-item";
+      fallback.textContent = event.data;
+      eventsList.prepend(fallback);
+    }
+
+    while (eventsList.children.length > 25) {
+      eventsList.removeChild(eventsList.lastChild as Node);
+    }
+  };
+}
+
+function bindQuickActions(): void {
+  const refresh = document.querySelector<HTMLButtonElement>("#refresh-health");
+  refresh?.addEventListener("click", async () => {
+    try {
+      await refreshHealth();
+      setStatus("Status refreshed.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), true);
+    }
+  });
+
+  const listenerRestart = document.querySelector<HTMLButtonElement>("#restart-listener");
+  listenerRestart?.addEventListener("click", async () => {
+    try {
+      await api<{ result: ServiceStatusResult }>("/v1/listener/restart", { method: "POST" });
+      setStatus("Listener restart requested.");
+      await refreshHealth();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), true);
+    }
+  });
+
+  const bridgeRestart = document.querySelector<HTMLButtonElement>("#restart-bridge");
+  bridgeRestart?.addEventListener("click", async () => {
+    try {
+      await api<{ result: ServiceStatusResult }>("/v1/bridge/restart", { method: "POST" });
+      setStatus("Bridge restart requested.");
+      await refreshHealth();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), true);
+    }
+  });
+
+  const testButton = document.querySelector<HTMLButtonElement>("#test-voice");
+  testButton?.addEventListener("click", async () => {
+    try {
+      await api("/v1/speak/test", {
+        method: "POST",
+        body: JSON.stringify({ text: "Faye is online." })
+      });
+      setStatus("Voice test played.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), true);
+    }
+  });
 }
 
 function bindSetupForm(): void {
@@ -382,19 +580,6 @@ function bindSetupForm(): void {
       setStatus("Setup saved.");
       await refreshProfiles();
       await refreshHealth();
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error), true);
-    }
-  });
-
-  const testButton = document.querySelector<HTMLButtonElement>("#test-voice");
-  testButton?.addEventListener("click", async () => {
-    try {
-      await api("/v1/speak/test", {
-        method: "POST",
-        body: JSON.stringify({ text: "Faye is online." })
-      });
-      setStatus("Voice test played.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error), true);
     }
@@ -431,29 +616,15 @@ function bindCreateProfileForm(): void {
       setStatus("Profile created.");
       form.reset();
       await refreshProfiles();
+      await refreshHealth();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error), true);
     }
   });
 }
 
-function bindEvents(): void {
-  if (!eventsList) {
-    return;
-  }
-
-  const source = new EventSource("/v1/events");
-  source.onmessage = (event) => {
-    const li = document.createElement("li");
-    li.textContent = event.data;
-    eventsList.prepend(li);
-    while (eventsList.children.length > 20) {
-      eventsList.removeChild(eventsList.lastChild as Node);
-    }
-  };
-}
-
 async function bootstrap(): Promise<void> {
+  bindQuickActions();
   bindSetupForm();
   bindCreateProfileForm();
   bindEvents();

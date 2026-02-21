@@ -7,47 +7,82 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <div class="sky-layer" aria-hidden="true"></div>
+
     <header class="hero">
+      <p class="hero-kicker">OpenClaw Second Install</p>
       <h1>Faye Voice Control</h1>
-      <p>Always-on wake word assistant with one-click profile switching.</p>
+      <p class="hero-lead">Always-on local voice orchestration with trust-first visibility and one-screen recovery actions.</p>
+
+      <div class="hero-actions" aria-label="Quick actions">
+        <button type="button" id="refresh-health" class="secondary">Refresh Status</button>
+        <button type="button" id="restart-listener" class="secondary">Restart Listener</button>
+        <button type="button" id="restart-bridge" class="secondary">Restart Bridge</button>
+        <button type="button" id="test-voice">Test Voice</button>
+      </div>
+
+      <div id="service-summary" class="status-strip" aria-live="polite"></div>
     </header>
 
     <main class="layout" aria-live="polite">
       <section class="panel" aria-labelledby="setup-title">
-        <h2 id="setup-title">3-Step Setup</h2>
-        <form id="setup-form">
-          <label>Profile Name
-            <input name="profileName" type="text" value="Primary Voice" required />
-          </label>
-          <label>ElevenLabs API Key
-            <input name="apiKey" type="password" autocomplete="off" />
-          </label>
-          <label>Voice ID
-            <input name="voiceId" type="text" required />
-          </label>
-          <label>Voice Name
-            <input name="voiceName" type="text" required />
-          </label>
-          <label>Wake Word
-            <input name="wakeWord" type="text" value="Faye Arise" required />
-          </label>
-          <label>Telegram Bot Token (optional)
-            <input name="telegramToken" type="password" autocomplete="off" />
-          </label>
-          <label>Telegram Chat ID (optional)
-            <input name="telegramChatId" type="text" />
-          </label>
+        <h2 id="setup-title">Guided Setup</h2>
+        <p class="panel-intro">Save your active profile once, then use quick actions above for daily checks and recovery.</p>
+
+        <form id="setup-form" class="stack-form">
+          <div class="form-group">
+            <h3>Identity</h3>
+            <label>
+              Profile Name
+              <input name="profileName" type="text" value="Primary Voice" required />
+            </label>
+            <label>
+              Wake Word
+              <input name="wakeWord" type="text" value="Faye Arise" required />
+            </label>
+          </div>
+
+          <div class="form-group">
+            <h3>Voice Provider</h3>
+            <label>
+              ElevenLabs API Key
+              <input name="apiKey" type="password" autocomplete="off" />
+            </label>
+            <label>
+              Voice ID
+              <input name="voiceId" type="text" required />
+            </label>
+            <label>
+              Voice Name
+              <input name="voiceName" type="text" required />
+            </label>
+          </div>
+
+          <div class="form-group">
+            <h3>Optional Bridge</h3>
+            <label>
+              Telegram Bot Token (optional)
+              <input name="telegramToken" type="password" autocomplete="off" />
+            </label>
+            <label>
+              Telegram Chat ID (optional)
+              <input name="telegramChatId" type="text" />
+            </label>
+          </div>
+
           <div class="actions">
             <button type="submit">Save Setup</button>
-            <button type="button" id="test-voice">Test Voice</button>
           </div>
         </form>
+
         <p id="setup-status" class="status"></p>
       </section>
 
       <section class="panel" aria-labelledby="profiles-title">
         <h2 id="profiles-title">Voice Profiles</h2>
-        <div id="profile-list"></div>
+        <p class="panel-intro">Keep specialized profiles and swap instantly when tasks or environments change.</p>
+        <div id="profile-list" class="profiles-grid"></div>
+
         <form id="create-profile-form" class="inline-form">
           <h3>Create Profile</h3>
           <label>Name<input name="name" type="text" required /></label>
@@ -59,14 +94,20 @@
       </section>
 
       <section class="panel" aria-labelledby="status-title">
-        <h2 id="status-title">System Status</h2>
+        <h2 id="status-title">System Pulse</h2>
+        <p class="panel-intro">A compressed operational readout for reliability, latency, and bridge behavior.</p>
         <div id="runtime-status" class="runtime-grid" aria-live="polite"></div>
-        <pre id="health" class="code-block"></pre>
+
+        <details class="health-raw">
+          <summary>Raw Health JSON</summary>
+          <pre id="health" class="code-block"></pre>
+        </details>
       </section>
 
       <section class="panel" aria-labelledby="events-title">
-        <h2 id="events-title">Live Events</h2>
-        <ul id="events"></ul>
+        <h2 id="events-title">Live Event Stream</h2>
+        <p class="panel-intro">Recent event flow to debug wake, bridge, and spoken-response timing in real time.</p>
+        <ul id="events" class="event-feed"></ul>
       </section>
     </main>
 
