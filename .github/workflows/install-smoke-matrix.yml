@@ -1,0 +1,66 @@
+name: Install Smoke Matrix
+
+on:
+  schedule:
+    - cron: "15 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-smoke:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install SoX (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sox
+
+      - name: Install SoX (macOS)
+        if: runner.os == 'macOS'
+        run: brew list sox >/dev/null 2>&1 || brew install sox
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run install smoke (test mode)
+        env:
+          FAYE_INSTALL_TEST_MODE: "1"
+          FAYE_INSTALL_SKIP_NPM: "1"
+          FAYE_INSTALL_SKIP_DOCTOR: "1"
+          FAYE_PREFLIGHT_REQUIRED_COMMANDS: "node,npm,python3,curl,rec"
+          FAYE_PREFLIGHT_MIC_COMMAND: "rec"
+          FAYE_PREFLIGHT_WRITABLE_PATHS: "${{ runner.temp }}/faye-openclaw,${{ github.workspace }}/.faye/reports"
+        run: |
+          export HOME="${{ runner.temp }}/faye-home"
+          mkdir -p "$HOME"
+          ./scripts/install.sh
+
+      - name: Upload install reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-smoke-${{ matrix.os }}-${{ github.run_id }}
+          path: .faye/reports/install-attempt-*.json

@@ -14,10 +14,16 @@ import {
   LEGACY_CONFIG_PATH,
   RUNTIME_CONFIG_PATH
 } from "./paths";
+import {
+  parseRequiredCommandsFromEnv,
+  parseWritablePathsFromEnv,
+  runPreflight,
+  type PreflightReport
+} from "./preflight";
 import { ServiceControl } from "./service-control";
 import { ConfigStore } from "./store";
-import type { ProfileCreateInput } from "./types";
-import { pathExists, writeSecret } from "./utils";
+import type { InstallAttemptReport, ProfileCreateInput } from "./types";
+import { pathExists, writeInstallAttemptReport, writeSecret } from "./utils";
 
 interface ParsedArgs {
   positionals: string[];
@@ -57,6 +63,10 @@ function getFlag(args: ParsedArgs, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function hasFlag(args: ParsedArgs, name: string): boolean {
+  return args.flags.has(name);
+}
+
 async function prompt(question: string, fallback?: string): Promise<string> {
   const rl = readline.createInterface({ input, output });
   const answer = (await rl.question(question)).trim();
@@ -68,19 +78,47 @@ async function prompt(question: string, fallback?: string): Promise<string> {
 }
 
 async function ensureSetup(store: ConfigStore, args: ParsedArgs): Promise<void> {
-  const profileName = getFlag(args, "profile-name") ?? (await prompt("Profile name [Primary Voice]: ", "Primary Voice"));
-  const voiceId = getFlag(args, "voice-id") ?? (await prompt("ElevenLabs voice ID: "));
-  const voiceName = getFlag(args, "voice-name") ?? (await prompt("Voice display name: "));
-  const wakeWord = getFlag(args, "wake-word") ?? (await prompt("Wake word [Faye Arise]: ", "Faye Arise"));
+  const nonInteractive = hasFlag(args, "non-interactive");
+
+  const profileName =
+    getFlag(args, "profile-name") ?? (nonInteractive ? "Primary Voice" : await prompt("Profile name [Primary Voice]: ", "Primary Voice"));
+  const voiceId = getFlag(args, "voice-id") ?? (nonInteractive ? "" : await prompt("ElevenLabs voice ID: "));
+  const voiceName = getFlag(args, "voice-name") ?? (nonInteractive ? "" : await prompt("Voice display name: "));
+  const wakeWord = getFlag(args, "wake-word") ?? (nonInteractive ? "Faye Arise" : await prompt("Wake word [Faye Arise]: ", "Faye Arise"));
+
+  const apiKey = getFlag(args, "api-key");
+  const telegramToken = getFlag(args, "telegram-bot-token");
+  const telegramChatId = getFlag(args, "telegram-chat-id");
+
+  if (nonInteractive) {
+    const missing: string[] = [];
+    if (!voiceId) {
+      missing.push("--voice-id");
+    }
+    if (!voiceName) {
+      missing.push("--voice-name");
+    }
+
+    if (!(await pathExists(DEFAULT_ELEVENLABS_KEY_PATH)) && !(apiKey && apiKey.trim().length > 0)) {
+      missing.push("--api-key");
+    }
+
+    if (missing.length > 0) {
+      throw new Error(`E_SETUP_NON_INTERACTIVE_MISSING_FIELDS:${missing.join(",")}`);
+    }
+  }
 
   if (!voiceId || !voiceName) {
     throw new Error("E_SETUP_MISSING_VOICE_FIELDS");
   }
 
-  const apiKey = getFlag(args, "api-key");
   if (apiKey && apiKey.trim()) {
     await writeSecret(DEFAULT_ELEVENLABS_KEY_PATH, apiKey);
   } else if (!(await pathExists(DEFAULT_ELEVENLABS_KEY_PATH))) {
+    if (nonInteractive) {
+      throw new Error("E_SETUP_MISSING_API_KEY");
+    }
+
     const keyFromPrompt = await prompt("ElevenLabs API key: ");
     if (!keyFromPrompt) {
       throw new Error("E_SETUP_MISSING_API_KEY");
@@ -88,13 +126,14 @@ async function ensureSetup(store: ConfigStore, args: ParsedArgs): Promise<void> 
     await writeSecret(DEFAULT_ELEVENLABS_KEY_PATH, keyFromPrompt);
   }
 
-  const telegramToken = getFlag(args, "telegram-bot-token");
-  const telegramChatId = getFlag(args, "telegram-chat-id");
   if (telegramToken && telegramToken.trim()) {
     await writeSecret(DEFAULT_TELEGRAM_TOKEN_PATH, telegramToken);
   }
 
-  const eventTransport = (getFlag(args, "event-transport") ?? "hybrid") as "local" | "hybrid";
+  const eventTransportRaw = getFlag(args, "event-transport") ?? "hybrid";
+  if (eventTransportRaw !== "local" && eventTransportRaw !== "hybrid") {
+    throw new Error("E_SETUP_INVALID_EVENT_TRANSPORT");
+  }
 
   const profileInput: ProfileCreateInput = {
     name: profileName,
@@ -114,13 +153,14 @@ async function ensureSetup(store: ConfigStore, args: ParsedArgs): Promise<void> 
 
   const profile = await store.upsertSetupProfile(profileInput);
   await store.activateProfile(profile.id);
-  await store.setEventTransport(eventTransport);
+  await store.setEventTransport(eventTransportRaw);
 
   const logger = createLogger();
   logger.info("SETUP_DONE", "Faye setup complete", {
     profileId: profile.id,
     runtimeConfig: RUNTIME_CONFIG_PATH,
-    legacyConfig: LEGACY_CONFIG_PATH
+    legacyConfig: LEGACY_CONFIG_PATH,
+    nonInteractive
   });
 
   console.log(`Configured profile '${profile.name}' (${profile.id})`);
@@ -223,11 +263,10 @@ async function profileCommand(store: ConfigStore, args: ParsedArgs): Promise<voi
   throw new Error("E_PROFILE_ACTION_UNKNOWN");
 }
 
-async function speakCommand(store: ConfigStore, args: ParsedArgs): Promise<void> {
-  const text = (getFlag(args, "text") ?? args.positionals.slice(1).join(" ")) || "Faye voice test successful.";
+async function synthesizeAndPlay(store: ConfigStore, text: string, profileId?: string): Promise<void> {
   const config = store.getConfig();
-  const profileId = getFlag(args, "profile-id") ?? config.activeProfileId;
-  const profile = config.profiles.find((item) => item.id === profileId);
+  const selectedProfileId = profileId ?? config.activeProfileId;
+  const profile = config.profiles.find((item) => item.id === selectedProfileId);
   if (!profile) {
     throw new Error("E_PROFILE_NOT_FOUND");
   }
@@ -239,9 +278,176 @@ async function speakCommand(store: ConfigStore, args: ParsedArgs): Promise<void>
   await fs.unlink(outFile).catch(() => undefined);
 }
 
+async function speakCommand(store: ConfigStore, args: ParsedArgs): Promise<void> {
+  const text = (getFlag(args, "text") ?? args.positionals.slice(1).join(" ")) || "Faye voice test successful.";
+  await synthesizeAndPlay(store, text, getFlag(args, "profile-id"));
+}
+
 async function doctorCommand(store: ConfigStore): Promise<void> {
   const report = await runDoctor(store);
   console.log(JSON.stringify(report, null, 2));
+}
+
+function printPreflightReport(report: PreflightReport): void {
+  console.log(`Preflight status: ${report.ok ? "PASS" : "FAIL"}`);
+  console.log(`Timestamp: ${report.timestamp}`);
+
+  console.log("\nDependencies:");
+  for (const [name, ok] of Object.entries(report.requiredCommands)) {
+    console.log(`- ${name}: ${ok ? "ok" : "missing"}`);
+  }
+
+  console.log("\nWritable paths:");
+  for (const [dirPath, ok] of Object.entries(report.writablePaths)) {
+    console.log(`- ${dirPath}: ${ok ? "ok" : "not writable"}`);
+  }
+
+  console.log("\nMicrophone tooling:");
+  console.log(`- command=${report.microphone.command} available=${report.microphone.available ? "yes" : "no"}`);
+
+  if (report.errorCodes.length > 0) {
+    console.log("\nError codes:");
+    for (const code of report.errorCodes) {
+      console.log(`- ${code}`);
+    }
+  }
+}
+
+async function preflightCommand(args: ParsedArgs): Promise<void> {
+  const report = await runPreflight({
+    requiredCommands: parseRequiredCommandsFromEnv(process.env.FAYE_PREFLIGHT_REQUIRED_COMMANDS),
+    writablePaths: parseWritablePathsFromEnv(process.env.FAYE_PREFLIGHT_WRITABLE_PATHS),
+    microphoneCommand: process.env.FAYE_PREFLIGHT_MIC_COMMAND
+  });
+
+  if (hasFlag(args, "json")) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    printPreflightReport(report);
+  }
+
+  if (!report.ok) {
+    throw new Error("E_PREFLIGHT_FAILED");
+  }
+}
+
+async function firstSuccessCommand(store: ConfigStore, args: ParsedArgs): Promise<void> {
+  const startedAt = Date.now();
+  const logger = createLogger();
+  const services = new ServiceControl(logger);
+
+  const doctorReport = await runDoctor(store);
+  const listener = await services.listenerStatus();
+  const dashboard = await services.dashboardStatus();
+  const bridge = await services.bridgeStatus();
+
+  const activeProfile = store.getActiveProfile();
+  const bridgeRequired = Boolean(activeProfile.telegramBotTokenPath && activeProfile.telegramChatId);
+  const servicesOk = listener.code === 0 && dashboard.code === 0 && (!bridgeRequired || bridge.code === 0);
+
+  const skipSpeak = hasFlag(args, "skip-speak");
+  let firstSpeakOk: boolean | null = null;
+  let speakMessage = "skipped";
+
+  if (!skipSpeak) {
+    try {
+      const probeText = getFlag(args, "text") ?? "Faye first-success probe."
+      await synthesizeAndPlay(store, probeText, getFlag(args, "profile-id"));
+      firstSpeakOk = true;
+      speakMessage = "ok";
+    } catch (error) {
+      firstSpeakOk = false;
+      speakMessage = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const steps: InstallAttemptReport["steps"] = [
+    {
+      name: "doctor",
+      ok: doctorReport.ok,
+      code: doctorReport.ok ? "OK" : doctorReport.errorCodes[0] ?? "E_DOCTOR_FAILED",
+      message: doctorReport.ok ? "doctor checks passed" : doctorReport.errorCodes.join(", ")
+    },
+    {
+      name: "listener-status",
+      ok: listener.code === 0,
+      code: listener.code === 0 ? "OK" : "E_LISTENER_STATUS",
+      message: (listener.stderr || listener.stdout || "listener status failed").trim().slice(0, 280)
+    },
+    {
+      name: "dashboard-status",
+      ok: dashboard.code === 0,
+      code: dashboard.code === 0 ? "OK" : "E_DASHBOARD_STATUS",
+      message: (dashboard.stderr || dashboard.stdout || "dashboard status failed").trim().slice(0, 280)
+    },
+    {
+      name: "bridge-status",
+      ok: bridgeRequired ? bridge.code === 0 : true,
+      code: bridgeRequired ? (bridge.code === 0 ? "OK" : "E_BRIDGE_STATUS") : "SKIPPED_OPTIONAL",
+      message: bridgeRequired
+        ? (bridge.stderr || bridge.stdout || "bridge status failed").trim().slice(0, 280)
+        : "bridge optional (telegram not configured)"
+    },
+    {
+      name: "speak-probe",
+      ok: firstSpeakOk !== false,
+      code: firstSpeakOk === null ? "SKIPPED" : firstSpeakOk ? "OK" : "E_SPEAK_PROBE_FAILED",
+      message: speakMessage
+    }
+  ];
+
+  const success = doctorReport.ok && servicesOk && firstSpeakOk !== false;
+  const report: InstallAttemptReport = {
+    schemaVersion: 1,
+    attemptId: `first-success-${Date.now()}-${process.pid}`,
+    generatedAt: new Date().toISOString(),
+    source: "faye-first-success",
+    success,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    platform: `${process.platform}-${process.arch}`,
+    nodeVersion: process.versions.node,
+    doctorOk: doctorReport.ok,
+    servicesOk,
+    firstSpeakOk,
+    steps,
+    notes: [
+      `bridgeRequired=${bridgeRequired ? "true" : "false"}`,
+      `skipSpeak=${skipSpeak ? "true" : "false"}`
+    ]
+  };
+
+  const reportPath = await writeInstallAttemptReport(report, { prefix: "install-attempt" });
+
+  const payload = {
+    ok: success,
+    reportPath,
+    doctor: doctorReport,
+    services: {
+      listener,
+      dashboard,
+      bridge,
+      bridgeRequired,
+      servicesOk
+    },
+    speakProbe: {
+      ok: firstSpeakOk,
+      message: speakMessage
+    }
+  };
+
+  if (hasFlag(args, "json")) {
+    console.log(JSON.stringify(payload, null, 2));
+  } else {
+    console.log(`First-success: ${success ? "PASS" : "FAIL"}`);
+    console.log(`Report: ${reportPath}`);
+    console.log(`Doctor ok: ${doctorReport.ok}`);
+    console.log(`Services ok: ${servicesOk}`);
+    console.log(`Speak probe: ${firstSpeakOk === null ? "skipped" : firstSpeakOk ? "ok" : "failed"}`);
+  }
+
+  if (!success) {
+    throw new Error("E_FIRST_SUCCESS_FAILED");
+  }
 }
 
 function printHelp(): void {
@@ -249,7 +455,8 @@ function printHelp(): void {
 Faye CLI
 
 Commands:
-  setup [--api-key ... --voice-id ... --voice-name ... --wake-word ...]
+  preflight [--json]
+  setup [--non-interactive --api-key ... --voice-id ... --voice-name ... --wake-word ...]
   profile list
   profile create --name ... --voice-id ... --voice-name ... [--wake-word ...]
   profile update --id ... [--wake-word ...]
@@ -257,6 +464,7 @@ Commands:
   profile delete --id ...
   speak --text "hello"
   doctor
+  first-success [--json] [--skip-speak] [--text "probe text"]
 `);
 }
 
@@ -266,6 +474,11 @@ async function main(): Promise<void> {
 
   if (command === "help" || command === "--help" || command === "-h") {
     printHelp();
+    return;
+  }
+
+  if (command === "preflight") {
+    await preflightCommand(args);
     return;
   }
 
@@ -290,6 +503,11 @@ async function main(): Promise<void> {
 
   if (command === "speak") {
     await speakCommand(store, args);
+    return;
+  }
+
+  if (command === "first-success") {
+    await firstSuccessCommand(store, args);
     return;
   }
 

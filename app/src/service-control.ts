@@ -4,13 +4,22 @@ import path from "node:path";
 import type { Logger } from "./logger";
 import { REPO_ROOT } from "./paths";
 
-interface CommandResult {
+export interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
 }
 
-async function runShell(scriptPath: string, args: string[]): Promise<CommandResult> {
+export type RunShellFn = (scriptPath: string, args: string[]) => Promise<CommandResult>;
+
+export interface ServiceControlOptions {
+  listenerScript?: string;
+  dashboardScript?: string;
+  bridgeScript?: string;
+  runShellFn?: RunShellFn;
+}
+
+export const defaultRunShell: RunShellFn = async (scriptPath, args) => {
   return new Promise((resolve, reject) => {
     const child = spawn("/usr/bin/env", ["bash", scriptPath, ...args], {
       cwd: REPO_ROOT,
@@ -33,17 +42,26 @@ async function runShell(scriptPath: string, args: string[]): Promise<CommandResu
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
-}
+};
 
 export class ServiceControl {
-  private readonly listenerScript = path.join(REPO_ROOT, "scripts", "listener-control.sh");
-  private readonly dashboardScript = path.join(REPO_ROOT, "scripts", "dashboard-control.sh");
-  private readonly bridgeScript = path.join(REPO_ROOT, "scripts", "telegram-bridge-control.sh");
+  private readonly listenerScript: string;
+  private readonly dashboardScript: string;
+  private readonly bridgeScript: string;
+  private readonly runShellFn: RunShellFn;
 
-  constructor(private readonly logger: Logger) {}
+  constructor(
+    private readonly logger: Logger,
+    options: ServiceControlOptions = {}
+  ) {
+    this.listenerScript = options.listenerScript ?? path.join(REPO_ROOT, "scripts", "listener-control.sh");
+    this.dashboardScript = options.dashboardScript ?? path.join(REPO_ROOT, "scripts", "dashboard-control.sh");
+    this.bridgeScript = options.bridgeScript ?? path.join(REPO_ROOT, "scripts", "telegram-bridge-control.sh");
+    this.runShellFn = options.runShellFn ?? defaultRunShell;
+  }
 
   async restartListener(): Promise<CommandResult> {
-    const result = await runShell(this.listenerScript, ["restart"]);
+    const result = await this.runShellFn(this.listenerScript, ["restart"]);
     if (result.code !== 0) {
       this.logger.warn("LISTENER_RESTART_FAILED", "Listener restart failed", result);
     }
@@ -51,7 +69,7 @@ export class ServiceControl {
   }
 
   async restartDashboard(): Promise<CommandResult> {
-    const result = await runShell(this.dashboardScript, ["restart"]);
+    const result = await this.runShellFn(this.dashboardScript, ["restart"]);
     if (result.code !== 0) {
       this.logger.warn("DASHBOARD_RESTART_FAILED", "Dashboard restart failed", result);
     }
@@ -59,7 +77,7 @@ export class ServiceControl {
   }
 
   async restartBridge(): Promise<CommandResult> {
-    const result = await runShell(this.bridgeScript, ["restart"]);
+    const result = await this.runShellFn(this.bridgeScript, ["restart"]);
     if (result.code !== 0) {
       this.logger.warn("BRIDGE_RESTART_FAILED", "Telegram bridge restart failed", result);
     }
@@ -67,14 +85,14 @@ export class ServiceControl {
   }
 
   async listenerStatus(): Promise<CommandResult> {
-    return runShell(this.listenerScript, ["status"]);
+    return this.runShellFn(this.listenerScript, ["status"]);
   }
 
   async dashboardStatus(): Promise<CommandResult> {
-    return runShell(this.dashboardScript, ["status"]);
+    return this.runShellFn(this.dashboardScript, ["status"]);
   }
 
   async bridgeStatus(): Promise<CommandResult> {
-    return runShell(this.bridgeScript, ["status"]);
+    return this.runShellFn(this.bridgeScript, ["status"]);
   }
 }

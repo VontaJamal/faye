@@ -53,3 +53,44 @@ jobs:
 
       - name: Security Audit (high+)
         run: npm audit --audit-level=high
+
+  macos-smoke:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Ensure SoX
+        run: brew list sox >/dev/null 2>&1 || brew install sox
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Install smoke (test mode)
+        env:
+          FAYE_INSTALL_TEST_MODE: "1"
+          FAYE_INSTALL_SKIP_NPM: "1"
+          FAYE_INSTALL_SKIP_DOCTOR: "1"
+          FAYE_PREFLIGHT_REQUIRED_COMMANDS: "node,npm,python3,curl,rec"
+          FAYE_PREFLIGHT_MIC_COMMAND: "rec"
+          FAYE_PREFLIGHT_WRITABLE_PATHS: "${{ runner.temp }}/faye-openclaw,${{ github.workspace }}/.faye/reports"
+        run: |
+          export HOME="${{ runner.temp }}/faye-home"
+          mkdir -p "$HOME"
+          ./scripts/install.sh
+          ls -1 .faye/reports/install-attempt-*.json >/dev/null

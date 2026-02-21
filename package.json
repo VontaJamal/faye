@@ -1,6 +1,6 @@
 {
   "name": "faye-voice",
-  "version": "1.1.0",
+  "version": "1.2.0-alpha.2",
   "description": "Local-first wake-word voice agent control plane",
   "private": true,
   "scripts": {
@@ -10,6 +10,7 @@
     "start:api": "node dist/app/index.js",
     "start:bridge": "node dist/app/telegramBridge.js",
     "cli": "node dist/app/cli.js",
+    "preflight": "./scripts/preflight.sh",
     "test:app": "npm run build:app && node --test dist/app/test/*.test.js",
     "test:ops": "node --test scripts/test/*.test.mjs",
     "test": "npm run test:app && npm run test:ops",
@@ -22,7 +23,8 @@
     "triage:sla-check": "node ./scripts/triage-sla-check.mjs",
     "guard:seven-shadow": "npm --prefix governance/seven-shadow-system ci && npm --prefix governance/seven-shadow-system run build && node governance/seven-shadow-system/dist/src/sevenShadowSystem.js",
     "guard:ai-review": "npm run guard:seven-shadow -- --policy .seven-shadow/policy.json",
-    "demo": "./scripts/demo.sh"
+    "demo": "./scripts/demo.sh",
+    "install:kpi": "node ./scripts/install-kpi.mjs"
   },
   "engines": {
     "node": ">=20"

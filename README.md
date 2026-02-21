@@ -55,6 +55,12 @@ Expected: audible playback.
 
 If you want more install options: `docs/distribution.md`
 
+## OpenClaw Second Install
+
+Use the canonical OpenClaw -> Faye onboarding path:
+
+- `docs/openclaw-second-install.md`
+
 ## 3-step Quick Start
 
 1. `./scripts/install.sh`
@@ -78,11 +84,14 @@ For onboarding other people quickly:
 
 ## Everyday Commands
 
+- Preflight checks: `./scripts/preflight.sh`
 - Install: `./scripts/install.sh`
 - Setup/update: `./scripts/faye setup`
 - Health check: `./scripts/faye doctor`
+- First-success report: `./scripts/faye first-success --json`
 - Metrics (JSON): `curl -s http://127.0.0.1:4587/v1/metrics`
 - Metrics (Prom): `curl -s http://127.0.0.1:4587/v1/metrics?format=prom`
+- Install KPI summary: `node ./scripts/install-kpi.mjs --json`
 - List profiles: `./scripts/faye profile list`
 - Speak test: `./scripts/speak.sh "Hello from Faye"`
 - One-command demo: `npm run demo`

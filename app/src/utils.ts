@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import type { InstallAttemptReport } from "./types";
+
 export async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -37,6 +39,21 @@ export async function writeSecret(filePath: string, value: string): Promise<void
   await ensureDir(dir);
   await fs.writeFile(filePath, `${value.trim()}\n`, { mode: 0o600 });
   await fs.chmod(filePath, 0o600);
+}
+
+export async function writeInstallAttemptReport(
+  report: InstallAttemptReport,
+  options?: {
+    reportsDir?: string;
+    prefix?: string;
+  }
+): Promise<string> {
+  const reportsDir = options?.reportsDir ?? path.join(process.cwd(), ".faye", "reports");
+  const prefix = options?.prefix ?? "install-attempt";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filePath = path.join(reportsDir, `${prefix}-${stamp}-${process.pid}.json`);
+  await writeJsonAtomic(filePath, report, 0o600);
+  return filePath;
 }
 
 export async function readSecret(filePath: string): Promise<string> {
