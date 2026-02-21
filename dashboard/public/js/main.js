@@ -8,6 +8,21 @@ const FIELD_MAX = {
     telegramToken: 300,
     telegramChatId: 64
 };
+const DEBUG_MODE = new URLSearchParams(window.location.search).get("debug") === "1";
+const EVENT_LABELS = {
+    wake_detected: "Wake Word Heard",
+    wake_variant_learned: "Wake Phrase Learned",
+    message_transcribed: "Voice Captured",
+    listener_error: "Listener Issue",
+    listener_status: "Listener Update",
+    conversation_turn_started: "Conversation Turn Started",
+    conversation_turn_completed: "Conversation Turn Completed",
+    bridge_speak_received: "Agent Reply Received",
+    bridge_spoken: "Agent Reply Played",
+    bridge_action_requested: "Action Requested",
+    bridge_action_executed: "Action Completed",
+    bridge_action_blocked: "Action Needs Confirmation"
+};
 const setupStatus = document.querySelector("#setup-status");
 const setupValidationSummary = document.querySelector("#setup-validation-summary");
 const profileList = document.querySelector("#profile-list");
@@ -99,6 +114,139 @@ function appendEmptyState(container, text) {
     div.className = "empty-state";
     div.textContent = text;
     container.append(div);
+}
+function asObject(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    return value;
+}
+function asNonEmptyString(value) {
+    if (typeof value !== "string") {
+        return null;
+    }
+    const text = value.trim();
+    return text.length > 0 ? text : null;
+}
+function asFiniteNumber(value) {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function humanizeCode(code) {
+    return code
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+function eventTitle(type) {
+    if (DEBUG_MODE) {
+        return type;
+    }
+    return EVENT_LABELS[type] ?? humanizeCode(type);
+}
+function listenerStatusSummary(status) {
+    const map = {
+        started: "Listener started and is waiting for your wake phrase.",
+        conversation_loop_started: "Conversation session started.",
+        conversation_loop_extended: "Conversation session extended with extra turns.",
+        conversation_loop_ended: "Conversation session ended."
+    };
+    return map[status] ?? `Listener status: ${humanizeCode(status)}.`;
+}
+function eventSummary(event) {
+    const payload = asObject(event.payload) ?? {};
+    switch (event.type) {
+        case "wake_detected": {
+            const heard = asNonEmptyString(payload.heard);
+            const wakeWord = asNonEmptyString(payload.wake_word);
+            if (heard && wakeWord) {
+                return `Heard "${heard}" and matched wake phrase "${wakeWord}".`;
+            }
+            if (heard) {
+                return `Heard "${heard}" and started listening.`;
+            }
+            return "Wake phrase matched. Faye is listening.";
+        }
+        case "wake_variant_learned": {
+            const variant = asNonEmptyString(payload.variant);
+            const wakeWord = asNonEmptyString(payload.wake_word);
+            if (variant && wakeWord) {
+                return `Learned "${variant}" as an alternate phrase for "${wakeWord}".`;
+            }
+            if (variant) {
+                return `Learned "${variant}" as an alternate wake phrase.`;
+            }
+            return "Learned a new alternate wake phrase.";
+        }
+        case "message_transcribed": {
+            const text = asNonEmptyString(payload.text);
+            const turn = asFiniteNumber(payload.turn);
+            const turnPart = turn !== null ? ` (turn ${turn})` : "";
+            if (text) {
+                return `Captured your speech${turnPart}: "${text}".`;
+            }
+            return `Captured your speech${turnPart}.`;
+        }
+        case "listener_error": {
+            const code = asNonEmptyString(payload.code);
+            const status = asFiniteNumber(payload.status);
+            if (code && status !== null) {
+                return `Listener error ${code} (status ${status}).`;
+            }
+            if (code) {
+                return `Listener error ${code}.`;
+            }
+            return "Listener encountered an error.";
+        }
+        case "listener_status": {
+            const status = asNonEmptyString(payload.status);
+            if (status) {
+                return listenerStatusSummary(status);
+            }
+            return "Listener status updated.";
+        }
+        case "conversation_turn_started": {
+            const turn = asFiniteNumber(payload.turn);
+            return turn !== null ? `Started conversation turn ${turn}.` : "Started a conversation turn.";
+        }
+        case "conversation_turn_completed": {
+            const turn = asFiniteNumber(payload.turn);
+            const waitResult = asNonEmptyString(payload.wait_result);
+            if (turn !== null && waitResult) {
+                return `Completed turn ${turn} with result "${humanizeCode(waitResult)}".`;
+            }
+            if (turn !== null) {
+                return `Completed turn ${turn}.`;
+            }
+            return "Completed a conversation turn.";
+        }
+        case "bridge_speak_received": {
+            return "Agent response was received and queued for voice playback.";
+        }
+        case "bridge_spoken": {
+            const status = asNonEmptyString(payload.status);
+            if (status) {
+                return `Agent voice reply finished with status "${humanizeCode(status)}".`;
+            }
+            return "Agent voice reply was played.";
+        }
+        case "bridge_action_requested": {
+            const name = asNonEmptyString(payload.name);
+            return name ? `Requested action "${humanizeCode(name)}".` : "Requested an action.";
+        }
+        case "bridge_action_executed": {
+            const name = asNonEmptyString(payload.name);
+            return name ? `Completed action "${humanizeCode(name)}".` : "Completed an action.";
+        }
+        case "bridge_action_blocked": {
+            const name = asNonEmptyString(payload.name);
+            return name
+                ? `Action "${humanizeCode(name)}" is waiting for confirmation.`
+                : "Action is waiting for confirmation.";
+        }
+        default:
+            return "Activity updated.";
+    }
 }
 function makeChip(label, value, state = "warn") {
     const chip = document.createElement("span");
@@ -483,15 +631,22 @@ function renderEvent(payload) {
     top.className = "event-top";
     const type = document.createElement("span");
     type.className = "event-type";
-    type.textContent = payload.type;
+    type.textContent = eventTitle(payload.type);
     const time = document.createElement("span");
     time.className = "event-time";
     time.textContent = formatTimestamp(payload.time);
     top.append(type, time);
-    const pre = document.createElement("pre");
-    pre.className = "event-payload";
-    pre.textContent = JSON.stringify(payload.payload, null, 2);
-    item.append(top, pre);
+    item.append(top);
+    const summary = document.createElement("p");
+    summary.className = "event-summary";
+    summary.textContent = eventSummary(payload);
+    item.append(summary);
+    if (DEBUG_MODE) {
+        const pre = document.createElement("pre");
+        pre.className = "event-payload";
+        pre.textContent = JSON.stringify(payload.payload, null, 2);
+        item.append(pre);
+    }
     return item;
 }
 function bindEvents() {
