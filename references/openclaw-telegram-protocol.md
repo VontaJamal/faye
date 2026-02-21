@@ -25,7 +25,7 @@ This protocol is used to reduce delayed/missed response timing between wake dete
 - `#faye_ping`
 
 5. Action command (safe mode)
-- `#faye_action name=<health_summary|voice_test|listener_restart|bridge_restart> [session=<session-id>] [confirm=yes]`
+- `#faye_action name=<health_summary|voice_test|listener_restart|bridge_restart> [session=<session-id>] [confirm=yes] [nonce=<idempotency-key>]`
 
 ## Acknowledgements sent by Faye bridge
 
@@ -47,3 +47,4 @@ This protocol is used to reduce delayed/missed response timing between wake dete
   - auto-retries one `#faye_voice` send if timeout occurs,
   - emits `session_timeout` event if response still does not arrive.
 - Impactful actions (`listener_restart`, `bridge_restart`) require `confirm=yes`; otherwise response is `status=needs_confirm`.
+- When retries/replays are possible, provide a stable `nonce` so impactful action execution is idempotent across duplicate updates.
