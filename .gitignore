@@ -4,3 +4,5 @@ dist/
 .DS_Store
 .faye/reports/
 .seven-shadow/reports/
+test-results/
+playwright-report/

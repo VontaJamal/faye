@@ -4,7 +4,7 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:/bin:/usr/bin:$PATH"
 CONFIG="${FAYE_VOICE_CONFIG:-$HOME/.openclaw/faye-voice-config.json}"
 RUNTIME_CONFIG="${FAYE_RUNTIME_CONFIG:-$HOME/.openclaw/faye-runtime-config.json}"
-LOCAL_API_BASE_URL="http://127.0.0.1:4587"
+LOCAL_API_BASE_URL="${FAYE_LOCAL_API_BASE_URL:-http://127.0.0.1:4587}"
 LOCAL_EVENT_TOKEN_FILE="$HOME/.openclaw/secrets/faye-local-event-token.txt"
 TMPDIR="$HOME/.openclaw/faye-voice/tmp"
 FAYE_STATE_DIR="$HOME/.openclaw/faye-voice"
@@ -463,20 +463,28 @@ wait_for_roundtrip_completion() {
   local session_id="$1"
   local timeout_seconds="$2"
   local started_at
+  local encoded_session
+  encoded_session="$(python3 - "$session_id" <<'PY'
+import sys
+import urllib.parse
+
+print(urllib.parse.quote(sys.argv[1], safe=""))
+PY
+)"
   started_at=$(date +%s)
 
   while true; do
     local payload
-    payload="$(curl -sS --max-time 4 "${LOCAL_API_BASE_URL}/v1/health" || true)"
+    payload="$(curl -sS --max-time 4 "${LOCAL_API_BASE_URL}/v1/roundtrip/${encoded_session}/status" || true)"
 
     if [[ -n "$payload" ]]; then
       local pending
-      pending=$(python3 - "$session_id" <<'PY' <<<"$payload"
+      pending=$(python3 - "$session_id" "$payload" <<'PY'
 import json
 import sys
 
 target = sys.argv[1]
-raw = sys.stdin.read()
+raw = sys.argv[2]
 
 try:
     doc = json.loads(raw)
@@ -484,13 +492,11 @@ except Exception:
     print("1")
     sys.exit(0)
 
-pending_sessions = ((doc.get("roundTrip") or {}).get("pendingSessions") or [])
-for item in pending_sessions:
-    if isinstance(item, dict) and str(item.get("sessionId", "")).strip() == target:
-        print("1")
-        sys.exit(0)
+if str(doc.get("sessionId", "")).strip() != target:
+    print("1")
+    sys.exit(0)
 
-print("0")
+print("1" if doc.get("pending") is True else "0")
 PY
 )
 
@@ -508,6 +514,17 @@ PY
     sleep 0.4
   done
 }
+
+if [[ "${FAYE_LISTENER_TEST_ROUNDTRIP_MODE:-0}" == "1" ]]; then
+  test_session_id="${FAYE_LISTENER_TEST_SESSION_ID:-s-test-roundtrip}"
+  test_timeout="${FAYE_LISTENER_TEST_TIMEOUT_SECONDS:-3}"
+  if wait_for_roundtrip_completion "$test_session_id" "$test_timeout"; then
+    echo "ROUNDTRIP_WAIT_OK"
+    exit 0
+  fi
+  echo "ROUNDTRIP_WAIT_TIMEOUT"
+  exit 1
+fi
 
 require_config
 API_KEY_PATH="$(json_get "elevenlabs_api_key_path")"

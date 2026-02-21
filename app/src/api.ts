@@ -7,6 +7,7 @@ import { ZodError } from "zod";
 
 import { playAudioFile } from "./audio";
 import { ConversationSessionManager } from "./conversationSessionManager";
+import { registerRoundTripStatusRoute } from "./http/routes/roundTripStatus";
 import { runDoctor, type DoctorReport } from "./doctor";
 import type { EventHub } from "./events";
 import { ElevenLabsClient } from "./elevenlabs";
@@ -507,6 +508,8 @@ export function createApiServer(deps: ApiDependencies): express.Express {
       routeError(deps.logger, res, error);
     }
   });
+
+  registerRoundTripStatusRoute(app, { roundTrip });
 
   app.get("/v1/conversation/active", (_req, res) => {
     try {

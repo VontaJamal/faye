@@ -548,6 +548,100 @@ test("metrics endpoint tracks wake-to-spoken flow", async () => {
   }
 });
 
+test("roundtrip status endpoint tracks pending session lifecycle", async () => {
+  const harness = await startHarness();
+  try {
+    const unknown = await requestJson(harness.baseUrl, "/v1/roundtrip/s-roundtrip-1/status");
+    assert.equal(unknown.status, 200);
+    assert.deepEqual(unknown.body, {
+      sessionId: "s-roundtrip-1",
+      pending: false,
+      state: null,
+      retryCount: 0,
+      updatedAt: null
+    });
+
+    const blocked = await requestJson(harness.baseUrl, "/v1/roundtrip/s-roundtrip-1/status", {
+      headers: {
+        "x-forwarded-for": "8.8.8.8"
+      }
+    });
+    assert.equal(blocked.status, 403);
+    assert.deepEqual(blocked.body, { error: "E_LOCAL_ONLY" });
+
+    const headers = {
+      "Content-Type": "application/json",
+      "x-faye-local-token": "test-local-token"
+    };
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "wake_detected", payload: { session_id: "s-roundtrip-1", heard: "faye arise" } })
+    });
+
+    const wakeStatus = await requestJson(harness.baseUrl, "/v1/roundtrip/s-roundtrip-1/status");
+    assert.equal(wakeStatus.status, 200);
+    const wakeBody = wakeStatus.body as {
+      pending: boolean;
+      state: string | null;
+      retryCount: number;
+      updatedAt: string | null;
+    };
+    assert.equal(wakeBody.pending, true);
+    assert.equal(wakeBody.state, "wake_detected");
+    assert.equal(wakeBody.retryCount, 0);
+    assert.equal(typeof wakeBody.updatedAt, "string");
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "message_transcribed",
+        payload: { session_id: "s-roundtrip-1", turn: 1, text: "hello there" }
+      })
+    });
+
+    const awaitingSpeak = await requestJson(harness.baseUrl, "/v1/roundtrip/s-roundtrip-1/status");
+    assert.equal(awaitingSpeak.status, 200);
+    assert.equal((awaitingSpeak.body as { state: string | null }).state, "awaiting_speak");
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "bridge_speak_received",
+        payload: { session_id: "s-roundtrip-1", turn: 1, text: "response" }
+      })
+    });
+
+    const speakReceived = await requestJson(harness.baseUrl, "/v1/roundtrip/s-roundtrip-1/status");
+    assert.equal(speakReceived.status, 200);
+    assert.equal((speakReceived.body as { state: string | null }).state, "speak_received");
+
+    await requestJson(harness.baseUrl, "/v1/internal/listener-event", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "bridge_spoken",
+        payload: { session_id: "s-roundtrip-1", turn: 1, status: "ok" }
+      })
+    });
+
+    const completed = await requestJson(harness.baseUrl, "/v1/roundtrip/s-roundtrip-1/status");
+    assert.equal(completed.status, 200);
+    assert.deepEqual(completed.body, {
+      sessionId: "s-roundtrip-1",
+      pending: false,
+      state: null,
+      retryCount: 0,
+      updatedAt: null
+    });
+  } finally {
+    await harness.close();
+  }
+});
+
 test("health conversation snapshot tracks multi-turn session context", async () => {
   const harness = await startHarness();
   try {
