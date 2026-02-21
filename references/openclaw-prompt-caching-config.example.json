@@ -1,0 +1,13 @@
+{
+  "agents": {
+    "defaults": {
+      "promptCaching": {
+        "enabled": true,
+        "retentionDefault": "in_memory",
+        "keyStrategy": "session_stable_v1",
+        "saltEnvVar": "OPENCLAW_PROMPT_CACHE_HMAC_SALT",
+        "forceResponsesStore": true
+      }
+    }
+  }
+}

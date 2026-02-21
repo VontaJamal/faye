@@ -42,6 +42,9 @@ jobs:
       - name: Docs Contract
         run: ./scripts/docs-contract-check.sh
 
+      - name: Prompt Cache Contract
+        run: ./scripts/prompt-cache-contract-check.sh
+
       - name: Seven Shadow Double Pass
         run: ./scripts/seven-shadow-test.sh 2
 
@@ -55,6 +58,7 @@ jobs:
           - Tests: passed
           - Security pattern check: passed
           - Docs contract: passed
+          - Prompt cache contract: passed
           - Seven Shadow gauntlet (2x): passed
 
           Release label: ${{ github.event.inputs.release_label }}

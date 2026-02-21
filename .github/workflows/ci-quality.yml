@@ -48,6 +48,9 @@ jobs:
       - name: Docs Contract
         run: ./scripts/docs-contract-check.sh
 
+      - name: Prompt Cache Contract
+        run: ./scripts/prompt-cache-contract-check.sh
+
       - name: Accessibility Baseline
         run: ./scripts/accessibility-check.sh
 
