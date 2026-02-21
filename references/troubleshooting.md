@@ -5,13 +5,16 @@ Use this page when setup or voice flow is not working.
 ## Quick Recovery (Try This First)
 
 ```bash
+./scripts/preflight.sh
 ./scripts/listener-control.sh restart
 ./scripts/dashboard-control.sh restart
 ./scripts/telegram-bridge-control.sh restart
 ./scripts/faye doctor
+./scripts/faye first-success --json
 ```
 
 If `doctor` returns `"ok": true`, try your wake flow again.
+If `first-success` returns `"ok": false`, attach the generated `.faye/reports/install-attempt-*.json` report when filing an issue.
 
 ## Install Fails
 

@@ -14,11 +14,14 @@ What it does:
 2. Runs `./scripts/install.sh`.
 3. Starts always-on services and opens dashboard on `http://127.0.0.1:4587`.
 
+Canonical OpenClaw onboarding path: `docs/openclaw-second-install.md`
+
 ## Install from Existing Clone
 
 If someone already cloned the repo:
 
 ```bash
+./scripts/preflight.sh
 ./scripts/install.sh
 ./scripts/faye setup
 ```

@@ -101,6 +101,30 @@ export const LocalIngestEventSchema = z.object({
   payload: z.record(z.unknown()).default({})
 });
 
+export const InstallAttemptStepSchema = z.object({
+  name: z.string().min(1).max(120),
+  ok: z.boolean(),
+  code: z.string().min(1).max(80),
+  message: z.string().min(1).max(500).optional(),
+  durationMs: z.number().int().min(0).optional()
+});
+
+export const InstallAttemptReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  attemptId: z.string().min(8).max(80),
+  generatedAt: z.string().datetime(),
+  source: z.enum(["install.sh", "bootstrap.sh", "faye-first-success", "manual"]),
+  success: z.boolean(),
+  durationMs: z.number().int().min(0),
+  platform: z.string().min(1).max(80),
+  nodeVersion: z.string().min(1).max(32).optional(),
+  doctorOk: z.boolean().nullable(),
+  servicesOk: z.boolean().nullable(),
+  firstSpeakOk: z.boolean().nullable(),
+  steps: z.array(InstallAttemptStepSchema).min(1),
+  notes: z.array(z.string().min(1).max(240)).default([])
+});
+
 export type VoiceProfile = z.infer<typeof VoiceProfileSchema>;
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 export type ProfileCreateInput = z.infer<typeof ProfileCreateInputSchema>;
@@ -108,6 +132,8 @@ export type ProfilePatchInput = z.infer<typeof ProfilePatchInputSchema>;
 export type SpeakTestInput = z.infer<typeof SpeakTestInputSchema>;
 export type SetupInput = z.infer<typeof SetupInputSchema>;
 export type LocalIngestEvent = z.infer<typeof LocalIngestEventSchema>;
+export type InstallAttemptStep = z.infer<typeof InstallAttemptStepSchema>;
+export type InstallAttemptReport = z.infer<typeof InstallAttemptReportSchema>;
 
 export function normalizeVariants(wakeWord: string, variants?: string[]): string[] {
   const source = variants && variants.length > 0 ? variants : [wakeWord];

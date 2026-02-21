@@ -28,6 +28,7 @@ Manual path:
 
 1. Install:
 ```bash
+./scripts/preflight.sh
 ./scripts/install.sh
 ```
 Success signal:
@@ -58,6 +59,14 @@ Success signal:
 ```
 Success signal:
 - You hear audio playback.
+
+6. Capture first-success report:
+```bash
+./scripts/faye first-success --json
+```
+Success signal:
+- JSON shows `"ok": true`
+- Report path is under `.faye/reports/install-attempt-*.json`
 
 ## Always-On Check
 
