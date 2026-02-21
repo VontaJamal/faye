@@ -1,5 +1,6 @@
 import type { AppEvent, EventHub } from "./events";
 import type { Logger } from "./logger";
+import type { ConversationTurnPolicy } from "./types";
 
 type SpokenStatus = "ok" | "error" | "duplicate";
 type SessionState = "awaiting_user" | "awaiting_assistant" | "agent_responding" | "ended";
@@ -20,6 +21,8 @@ interface SessionRecord {
   updatedAtMs: number;
   expiresAtMs: number;
   totalTurns: number;
+  turnLimit: number;
+  extensionsUsed: number;
   turns: ConversationTurnRecord[];
   endReason?: string;
 }
@@ -45,16 +48,22 @@ export interface ConversationSessionSnapshot {
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
+  expiresInMs: number;
   endReason?: string;
   totalTurns: number;
   retainedTurns: number;
+  turnLimit: number;
+  extensionsUsed: number;
   turns: ConversationTurnSnapshot[];
 }
 
 export interface ConversationSnapshot {
-  ttlMs: number;
-  maxTurnsPerSession: number;
-  maxSessions: number;
+  policy: {
+    ttlMs: number;
+    maxTurnsRetainedPerSession: number;
+    maxSessions: number;
+    turnPolicy: ConversationTurnPolicy;
+  };
   activeSessions: number;
   retainedSessions: number;
   totals: {
@@ -64,6 +73,7 @@ export interface ConversationSnapshot {
     userTurns: number;
     assistantResponses: number;
   };
+  endReasons: Record<string, number>;
   lastEnded: SessionEndedSummary | null;
   sessions: ConversationSessionSnapshot[];
 }
@@ -74,12 +84,18 @@ interface ConversationSessionManagerDeps {
   ttlMs?: number;
   maxTurnsPerSession?: number;
   maxSessions?: number;
+  turnPolicy?: Partial<ConversationTurnPolicy>;
   nowMsFn?: () => number;
 }
 
-const DEFAULT_TTL_MS = 20 * 60 * 1000;
-const DEFAULT_MAX_TURNS_PER_SESSION = 12;
+const DEFAULT_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_MAX_TURNS_PER_SESSION = 16;
 const DEFAULT_MAX_SESSIONS = 24;
+const DEFAULT_TURN_POLICY: ConversationTurnPolicy = {
+  baseTurns: 8,
+  extendBy: 4,
+  hardCap: 16
+};
 
 function formatIso(ms: number): string {
   return new Date(ms).toISOString();
@@ -135,12 +151,41 @@ function toListenerStatus(payload: Record<string, unknown>): string | null {
 }
 
 function toReason(payload: Record<string, unknown>): string | undefined {
-  const reason = payload.reason;
-  if (typeof reason !== "string") {
+  return normalizeReason(payload.reason);
+}
+
+function toPositiveInt(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function toTurnLimit(payload: Record<string, unknown>): number | null {
+  const maxTurns = payload.max_turns ?? payload.maxTurns;
+  return toPositiveInt(maxTurns);
+}
+
+function normalizeReason(value: unknown): string | undefined {
+  if (typeof value !== "string") {
     return undefined;
   }
-  const normalized = reason.trim().toLowerCase().slice(0, 80);
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_:-]+/g, "_").slice(0, 80);
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function clampTurnPolicy(input: Partial<ConversationTurnPolicy> | undefined): ConversationTurnPolicy {
+  const baseTurns = Math.max(1, Math.min(32, Math.floor(input?.baseTurns ?? DEFAULT_TURN_POLICY.baseTurns)));
+  const extendBy = Math.max(1, Math.min(16, Math.floor(input?.extendBy ?? DEFAULT_TURN_POLICY.extendBy)));
+  const hardCapRaw = Math.max(1, Math.min(64, Math.floor(input?.hardCap ?? DEFAULT_TURN_POLICY.hardCap)));
+  const hardCap = Math.max(baseTurns, hardCapRaw);
+  return { baseTurns, extendBy, hardCap };
 }
 
 export class ConversationSessionManager {
@@ -148,6 +193,7 @@ export class ConversationSessionManager {
   private readonly ttlMs: number;
   private readonly maxTurnsPerSession: number;
   private readonly maxSessions: number;
+  private readonly turnPolicy: ConversationTurnPolicy;
   private readonly nowMsFn: () => number;
   private readonly unsubscribe: () => void;
 
@@ -159,9 +205,11 @@ export class ConversationSessionManager {
     assistantResponses: 0
   };
 
+  private readonly endReasonCounts = new Map<string, number>();
   private lastEnded: SessionEndedSummary | null = null;
 
   constructor(private readonly deps: ConversationSessionManagerDeps) {
+    this.turnPolicy = clampTurnPolicy(deps.turnPolicy);
     this.ttlMs = Math.max(5_000, deps.ttlMs ?? DEFAULT_TTL_MS);
     this.maxTurnsPerSession = Math.max(1, deps.maxTurnsPerSession ?? DEFAULT_MAX_TURNS_PER_SESSION);
     this.maxSessions = Math.max(4, deps.maxSessions ?? DEFAULT_MAX_SESSIONS);
@@ -183,32 +231,41 @@ export class ConversationSessionManager {
     const ordered = [...this.sessions.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
 
     return {
-      ttlMs: this.ttlMs,
-      maxTurnsPerSession: this.maxTurnsPerSession,
-      maxSessions: this.maxSessions,
+      policy: {
+        ttlMs: this.ttlMs,
+        maxTurnsRetainedPerSession: this.maxTurnsPerSession,
+        maxSessions: this.maxSessions,
+        turnPolicy: { ...this.turnPolicy }
+      },
       activeSessions: ordered.filter((session) => session.state !== "ended").length,
       retainedSessions: ordered.length,
       totals: { ...this.totals },
+      endReasons: Object.fromEntries(this.endReasonCounts),
       lastEnded: this.lastEnded ? { ...this.lastEnded } : null,
-      sessions: ordered.map((session) => ({
-        sessionId: session.id,
-        state: session.state,
-        createdAt: formatIso(session.createdAtMs),
-        updatedAt: formatIso(session.updatedAtMs),
-        expiresAt: formatIso(session.expiresAtMs),
-        endReason: session.endReason,
-        totalTurns: session.totalTurns,
-        retainedTurns: session.turns.length,
-        turns: session.turns.map((turn) => ({
-          turn: turn.turn,
-          userText: turn.userText,
-          userAt: typeof turn.userAtMs === "number" ? formatIso(turn.userAtMs) : null,
-          assistantText: turn.assistantText,
-          assistantAt: typeof turn.assistantAtMs === "number" ? formatIso(turn.assistantAtMs) : null,
-          assistantStatus: turn.assistantStatus
-        }))
-      }))
+      sessions: ordered.map((session) => this.toSessionSnapshot(session, now))
     };
+  }
+
+  getSessionSnapshot(sessionId: string): ConversationSessionSnapshot | null {
+    const now = this.nowMsFn();
+    this.pruneExpired(now);
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+    return this.toSessionSnapshot(session, now);
+  }
+
+  endSession(sessionId: string, reason: string): ConversationSessionSnapshot | null {
+    const now = this.nowMsFn();
+    this.pruneExpired(now);
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    this.markSessionEnded(session, now, normalizeReason(reason) ?? "manual_terminated");
+    return this.toSessionSnapshot(session, now);
   }
 
   private handleEvent(event: AppEvent): void {
@@ -238,16 +295,36 @@ export class ConversationSessionManager {
     }
 
     if (event.type === "session_timeout" && sessionId) {
-      this.endSession(sessionId, now, "roundtrip_timeout");
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        this.markSessionEnded(session, now, "agent_timeout");
+      }
       return;
     }
 
     if (event.type === "listener_status" && sessionId) {
       const status = toListenerStatus(payload);
+      if (!status) {
+        return;
+      }
+
       if (status === "conversation_loop_started" || status === "conversation_started") {
-        this.openSession(sessionId, now);
-      } else if (status === "conversation_loop_ended" || status === "conversation_ended") {
-        this.endSession(sessionId, now, toReason(payload) ?? "listener_ended");
+        const session = this.openSession(sessionId, now);
+        this.applyListenerTurnLimit(session, payload);
+        return;
+      }
+
+      if (status === "conversation_loop_extended") {
+        const session = this.ensureSession(sessionId, now);
+        this.applyListenerTurnLimit(session, payload);
+        return;
+      }
+
+      if (status === "conversation_loop_ended" || status === "conversation_ended") {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+          this.markSessionEnded(session, now, toReason(payload) ?? "listener_ended");
+        }
       }
     }
   }
@@ -259,6 +336,8 @@ export class ConversationSessionManager {
       existing.endReason = undefined;
       existing.updatedAtMs = now;
       existing.expiresAtMs = now + this.ttlMs;
+      existing.turnLimit = this.turnPolicy.baseTurns;
+      existing.extensionsUsed = 0;
       return existing;
     }
 
@@ -269,6 +348,8 @@ export class ConversationSessionManager {
       updatedAtMs: now,
       expiresAtMs: now + this.ttlMs,
       totalTurns: 0,
+      turnLimit: this.turnPolicy.baseTurns,
+      extensionsUsed: 0,
       turns: []
     };
     this.sessions.set(sessionId, created);
@@ -366,7 +447,7 @@ export class ConversationSessionManager {
       }
 
       session.totalTurns = Math.max(session.totalTurns, turn);
-      const created = {
+      const created: ConversationTurnRecord = {
         turn,
         userText: null,
         userAtMs: null,
@@ -401,14 +482,22 @@ export class ConversationSessionManager {
     return created;
   }
 
-  private endSession(sessionId: string, now: number, reason: string): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
+  private applyListenerTurnLimit(session: SessionRecord, payload: Record<string, unknown>): void {
+    const limit = toTurnLimit(payload);
+    if (limit === null) {
       return;
     }
 
+    const clamped = Math.max(this.turnPolicy.baseTurns, Math.min(this.turnPolicy.hardCap, limit));
+    session.turnLimit = clamped;
+    const extra = clamped - this.turnPolicy.baseTurns;
+    session.extensionsUsed = extra > 0 ? Math.ceil(extra / this.turnPolicy.extendBy) : 0;
+  }
+
+  private markSessionEnded(session: SessionRecord, now: number, reason: string): void {
     if (session.state !== "ended") {
       this.totals.sessionsEnded += 1;
+      this.recordEndReason(reason);
     }
 
     session.state = "ended";
@@ -416,7 +505,7 @@ export class ConversationSessionManager {
     session.updatedAtMs = now;
     session.expiresAtMs = now + this.ttlMs;
     this.lastEnded = {
-      sessionId,
+      sessionId: session.id,
       at: formatIso(now),
       reason
     };
@@ -431,6 +520,7 @@ export class ConversationSessionManager {
       this.sessions.delete(session.id);
       this.totals.sessionsExpired += 1;
       if (session.state !== "ended") {
+        this.recordEndReason("ttl_expired");
         this.lastEnded = {
           sessionId: session.id,
           at: formatIso(now),
@@ -469,6 +559,7 @@ export class ConversationSessionManager {
       this.sessions.delete(victim.id);
       this.totals.sessionsExpired += 1;
       if (victim.state !== "ended") {
+        this.recordEndReason("capacity_pruned");
         this.lastEnded = {
           sessionId: victim.id,
           at: formatIso(now),
@@ -476,5 +567,33 @@ export class ConversationSessionManager {
         };
       }
     }
+  }
+
+  private recordEndReason(reason: string): void {
+    this.endReasonCounts.set(reason, (this.endReasonCounts.get(reason) ?? 0) + 1);
+  }
+
+  private toSessionSnapshot(session: SessionRecord, now: number): ConversationSessionSnapshot {
+    return {
+      sessionId: session.id,
+      state: session.state,
+      createdAt: formatIso(session.createdAtMs),
+      updatedAt: formatIso(session.updatedAtMs),
+      expiresAt: formatIso(session.expiresAtMs),
+      expiresInMs: Math.max(0, session.expiresAtMs - now),
+      endReason: session.endReason,
+      totalTurns: session.totalTurns,
+      retainedTurns: session.turns.length,
+      turnLimit: session.turnLimit,
+      extensionsUsed: session.extensionsUsed,
+      turns: session.turns.map((turn) => ({
+        turn: turn.turn,
+        userText: turn.userText,
+        userAt: typeof turn.userAtMs === "number" ? formatIso(turn.userAtMs) : null,
+        assistantText: turn.assistantText,
+        assistantAt: typeof turn.assistantAtMs === "number" ? formatIso(turn.assistantAtMs) : null,
+        assistantStatus: turn.assistantStatus
+      }))
+    };
   }
 }

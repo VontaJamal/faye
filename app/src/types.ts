@@ -96,9 +96,25 @@ export const LocalIngestEventSchema = z.object({
     "listener_error",
     "listener_status",
     "bridge_speak_received",
-    "bridge_spoken"
+    "bridge_spoken",
+    "bridge_action_requested",
+    "bridge_action_executed",
+    "bridge_action_blocked"
   ]),
   payload: z.record(z.unknown()).default({})
+});
+
+export const BridgeActionNameSchema = z.enum([
+  "health_summary",
+  "voice_test",
+  "listener_restart",
+  "bridge_restart"
+]);
+
+export const ConversationTurnPolicySchema = z.object({
+  baseTurns: z.number().int().min(1).max(32),
+  extendBy: z.number().int().min(1).max(16),
+  hardCap: z.number().int().min(1).max(64)
 });
 
 export const InstallAttemptStepSchema = z.object({
@@ -161,6 +177,8 @@ export type ProfilePatchInput = z.infer<typeof ProfilePatchInputSchema>;
 export type SpeakTestInput = z.infer<typeof SpeakTestInputSchema>;
 export type SetupInput = z.infer<typeof SetupInputSchema>;
 export type LocalIngestEvent = z.infer<typeof LocalIngestEventSchema>;
+export type BridgeActionName = z.infer<typeof BridgeActionNameSchema>;
+export type ConversationTurnPolicy = z.infer<typeof ConversationTurnPolicySchema>;
 export type InstallAttemptStep = z.infer<typeof InstallAttemptStepSchema>;
 export type InstallAttemptReport = z.infer<typeof InstallAttemptReportSchema>;
 export type UxKpiFailure = z.infer<typeof UxKpiFailureSchema>;

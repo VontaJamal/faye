@@ -119,6 +119,16 @@
         </details>
       </section>
 
+      <section class="panel" aria-labelledby="conversation-title">
+        <h2 id="conversation-title">Conversation Session</h2>
+        <p class="panel-intro">Track active conversation progress, retained turns, and end the session if recovery is needed.</p>
+        <div id="conversation-state" class="conversation-state" aria-live="polite"></div>
+        <ul id="conversation-turns" class="conversation-turns" aria-live="polite"></ul>
+        <div class="actions">
+          <button type="button" id="conversation-end" class="danger">End Active Session</button>
+        </div>
+      </section>
+
       <section class="panel" aria-labelledby="events-title">
         <h2 id="events-title">Live Event Stream</h2>
         <p class="panel-intro">Recent event flow to debug wake, bridge, and spoken-response timing in real time.</p>

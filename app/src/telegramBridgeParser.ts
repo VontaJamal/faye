@@ -1,5 +1,15 @@
+import type { BridgeActionName } from "./types";
+
+type BridgeActionCommand = {
+  type: "action";
+  name: BridgeActionName;
+  sessionId?: string;
+  confirm?: boolean;
+};
+
 export type BridgeCommand =
   | { type: "speak"; text: string; sessionId?: string; turn?: number }
+  | BridgeActionCommand
   | { type: "activate_profile"; profileId: string }
   | { type: "ping" };
 
@@ -14,6 +24,35 @@ function trimQuotes(value: string): string {
 function extractSessionId(payload: string): string | undefined {
   const match = payload.match(/\bsession=([A-Za-z0-9._:-]+)/i);
   return match?.[1];
+}
+
+function toActionName(value: unknown): BridgeActionName | undefined {
+  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (
+    text === "health_summary" ||
+    text === "voice_test" ||
+    text === "listener_restart" ||
+    text === "bridge_restart"
+  ) {
+    return text;
+  }
+  return undefined;
+}
+
+function toBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "yes" || normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "no" || normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+  return undefined;
 }
 
 function toTurnValue(input: unknown): number | undefined {
@@ -82,6 +121,55 @@ function parseSpeakPayload(payload: string): { text: string; sessionId?: string;
   return { text: trimQuotes(raw), sessionId, turn };
 }
 
+function parseActionPayload(payload: string): { name: BridgeActionName; sessionId?: string; confirm?: boolean } | null {
+  const raw = payload.trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const name = toActionName(parsed.name);
+      if (!name) {
+        return null;
+      }
+
+      const sessionId =
+        typeof parsed.session_id === "string"
+          ? parsed.session_id
+          : typeof parsed.sessionId === "string"
+            ? parsed.sessionId
+            : undefined;
+      const confirm = toBoolean(parsed.confirm);
+      return {
+        name,
+        sessionId,
+        ...(typeof confirm === "boolean" ? { confirm } : {})
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const nameMatch = raw.match(/\bname=([a-z_]+)/i);
+  const firstToken = raw.split(/\s+/)[0];
+  const name = toActionName(nameMatch?.[1] ?? firstToken ?? "");
+  if (!name) {
+    return null;
+  }
+
+  const sessionId = extractSessionId(raw);
+  const confirmMatch = raw.match(/\bconfirm=([a-z0-9]+)/i);
+  const confirm = toBoolean(confirmMatch?.[1]);
+
+  return {
+    name,
+    sessionId,
+    ...(typeof confirm === "boolean" ? { confirm } : {})
+  };
+}
+
 function parseProfileId(payload: string): string | null {
   const raw = payload.trim();
   if (!raw) {
@@ -134,6 +222,20 @@ export function parseBridgeCommand(text: string): BridgeCommand | null {
     return {
       type: "activate_profile",
       profileId
+    };
+  }
+
+  const actionMatch = message.match(/^#faye_action\b([\s\S]*)$/i);
+  if (actionMatch) {
+    const parsed = parseActionPayload(actionMatch[1] ?? "");
+    if (!parsed) {
+      return null;
+    }
+    return {
+      type: "action",
+      name: parsed.name,
+      sessionId: parsed.sessionId,
+      ...(typeof parsed.confirm === "boolean" ? { confirm: parsed.confirm } : {})
     };
   }
 

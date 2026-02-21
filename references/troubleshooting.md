@@ -93,6 +93,20 @@ Fix checklist:
 ```
 3. Confirm dashboard live events are updating.
 4. Confirm active profile wake word matches what you say.
+5. Open the Conversation Session panel and inspect:
+   - turn progress,
+   - session status,
+   - end reason (`idle_timeout`, `explicit_user_stop`, `agent_timeout`, `max_turns_reached`).
+
+If the session is stuck, end it manually from dashboard or API:
+
+```bash
+curl -s -X POST http://127.0.0.1:4587/v1/conversation/<session_id>/end \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"manual_recovery"}'
+```
+
+Then trigger wake word again.
 
 ## Telegram Bridge Delays or Misses
 
@@ -117,6 +131,13 @@ Fix:
 - consecutive errors
 - backoff
 - last command status
+
+For action commands, expected safety behavior:
+
+1. Low-risk actions (`health_summary`, `voice_test`) execute directly.
+2. Impactful actions (`listener_restart`, `bridge_restart`) require `confirm=yes`.
+3. If confirm is missing, bridge returns:
+   - `#faye_action_result ... status=needs_confirm reason=confirm_required`
 
 ## No Audio Playback
 

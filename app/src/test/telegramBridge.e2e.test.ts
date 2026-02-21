@@ -39,6 +39,25 @@ function activateUpdate(updateId: number, profileId: string): TelegramUpdate {
   };
 }
 
+function actionUpdate(
+  updateId: number,
+  name: "health_summary" | "voice_test" | "listener_restart" | "bridge_restart",
+  options?: { sessionId?: string; confirm?: boolean }
+): TelegramUpdate {
+  const sessionPart = options?.sessionId ? ` session=${options.sessionId}` : "";
+  const confirmPart = options?.confirm === true ? " confirm=yes" : "";
+  return {
+    update_id: updateId,
+    message: {
+      message_id: updateId,
+      text: `#faye_action name=${name}${sessionPart}${confirmPart}`,
+      chat: {
+        id: 999
+      }
+    }
+  };
+}
+
 test("telegram bridge runs speak command end-to-end and sends ack", async () => {
   const localCalls: Array<{ pathname: string; body?: unknown }> = [];
   const telegramMessages: string[] = [];
@@ -292,4 +311,96 @@ test("telegram bridge keeps action execution reliable with replayed mixed comman
 
   assert.equal(localCalls.filter((call) => call.pathname === "/v1/speak").length, 2);
   assert.equal(localCalls.filter((call) => call.pathname === "/v1/profiles/starter-profile/activate").length, 1);
+});
+
+test("telegram bridge executes low-risk action and sends deterministic action_result ack", async () => {
+  const telegramMessages: string[] = [];
+  const localCalls: string[] = [];
+  const localEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+
+  await processUpdates("token", 999, [actionUpdate(4001, "voice_test", { sessionId: "s-action-1" })], makeLogger(), {
+    callLocalApiFn: async (pathname) => {
+      localCalls.push(pathname);
+    },
+    fetchLocalJsonFn: async () => ({ ok: true }),
+    sendTelegramFn: async (_token, _chatId, text) => {
+      telegramMessages.push(text);
+    },
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async () => false,
+    markProcessedFn: async () => undefined,
+    emitLocalEventFn: async (type, payload) => {
+      localEvents.push({ type, payload });
+    }
+  });
+
+  assert.equal(localCalls.includes("/v1/speak/test"), true);
+  assert.equal(
+    telegramMessages.includes("#faye_action_result name=voice_test status=ok reason=ok session=s-action-1"),
+    true
+  );
+  assert.equal(localEvents.some((event) => event.type === "bridge_action_requested"), true);
+  assert.equal(localEvents.some((event) => event.type === "bridge_action_executed"), true);
+});
+
+test("telegram bridge blocks impactful action without confirm", async () => {
+  const telegramMessages: string[] = [];
+  const localCalls: string[] = [];
+  const localEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+
+  await processUpdates(
+    "token",
+    999,
+    [actionUpdate(4002, "listener_restart", { sessionId: "s-action-2" })],
+    makeLogger(),
+    {
+      callLocalApiFn: async (pathname) => {
+        localCalls.push(pathname);
+      },
+      fetchLocalJsonFn: async () => ({ ok: true }),
+      sendTelegramFn: async (_token, _chatId, text) => {
+        telegramMessages.push(text);
+      },
+      writeOffsetFn: async () => undefined,
+      hasProcessedFn: async () => false,
+      markProcessedFn: async () => undefined,
+      emitLocalEventFn: async (type, payload) => {
+        localEvents.push({ type, payload });
+      }
+    }
+  );
+
+  assert.equal(localCalls.length, 0);
+  assert.equal(
+    telegramMessages.includes(
+      "#faye_action_result name=listener_restart status=needs_confirm reason=confirm_required session=s-action-2"
+    ),
+    true
+  );
+  assert.equal(localEvents.some((event) => event.type === "bridge_action_blocked"), true);
+});
+
+test("telegram bridge executes confirmed impactful action exactly once across replay", async () => {
+  const processed = new Set<string>();
+  const localCalls: string[] = [];
+
+  const deps = {
+    callLocalApiFn: async (pathname: string) => {
+      localCalls.push(pathname);
+    },
+    fetchLocalJsonFn: async () => ({ ok: true }),
+    sendTelegramFn: async () => undefined,
+    writeOffsetFn: async () => undefined,
+    hasProcessedFn: async (key: string) => processed.has(key),
+    markProcessedFn: async (key: string) => {
+      processed.add(key);
+    },
+    emitLocalEventFn: async () => undefined
+  };
+
+  const update = actionUpdate(4003, "bridge_restart", { sessionId: "s-action-3", confirm: true });
+  await processUpdates("token", 999, [update], makeLogger(), deps);
+  await processUpdates("token", 999, [update], makeLogger(), deps);
+
+  assert.equal(localCalls.filter((call) => call === "/v1/bridge/restart").length, 1);
 });
