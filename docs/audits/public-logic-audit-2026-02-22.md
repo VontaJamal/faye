@@ -23,15 +23,23 @@
 ## Command Matrix
 | Check | Result | Notes |
 |---|---|---|
-| Pending baseline checks | Pending | To be filled during wave execution |
+| README npm script parity | PASS | All `npm run` references found in docs map to real package scripts |
+| `npm run build` | PASS | App + dashboard build succeeded |
+| `npm test` | PASS | App and ops test suites passed |
+| `npm run test:dashboard` | PASS | Playwright dashboard smoke passed |
+| `./scripts/docs-contract-check.sh` | PASS | Docs contract checks passed |
+| `./scripts/prompt-cache-contract-check.sh` | PASS | Prompt cache contract checks passed |
+| `./scripts/accessibility-check.sh` | PASS | Accessibility baseline passed |
+| `node dist/app/cli.js --help` | PASS | Public CLI help output rendered correctly |
+| `npm audit --audit-level=high` | PASS | No high/critical vulnerabilities detected |
 
 ## Findings Register
 | Severity | Area | Repro | Status | Fix |
 |---|---|---|---|---|
-| None yet | - | - | Open | In progress |
+| None | Public logic | N/A | Closed | No regressions found in audited surfaces |
 
 ## Residual Risks / Follow-ups
-- Pending deep audit pass.
+- Non-primary automation workflows may fail independently of public runtime logic and should be monitored separately.
 
 ## Attestation
 - This wave is maintenance and hardening only.
