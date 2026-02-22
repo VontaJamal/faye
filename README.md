@@ -235,10 +235,10 @@ Burn-in: `docs/burn-in.md` · SLO check: `./scripts/slo-eval.sh` · Canary: `npm
 
 If you are just using Faye, you can skip this.
 
-Rinshari-UI is the design playbook for maintainers who change UI behavior:
+Rinshari-Eye is the design playbook for maintainers who change UI behavior:
 
-- Repo: [VontaJamal/rinshari-ui](https://github.com/VontaJamal/rinshari-ui)
-- `design/rinshari-ui/templates/design-preflight.md`
+- Repo: [VontaJamal/rinshari-eye](https://github.com/VontaJamal/rinshari-eye)
+- `design/rinshari-eye/templates/design-preflight.md`
 - `docs/site-soul-brief.md`
 - `AGENTS.md`
 
@@ -250,4 +250,4 @@ MIT
 
 [Explore the Vault →](https://github.com/VontaJamal/shadow-vault)
 
-Part of [Sovereign](https://github.com/VontaJamal) — The Shadow Dominion.
+Part of [Sovereign](https://github.com/VontaJamal) — The Shadow Dominion. 🏴‍☠️
