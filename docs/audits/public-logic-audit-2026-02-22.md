@@ -32,14 +32,16 @@
 | `./scripts/accessibility-check.sh` | PASS | Accessibility baseline passed |
 | `node dist/app/cli.js --help` | PASS | Public CLI help output rendered correctly |
 | `npm audit --audit-level=high` | PASS | No high/critical vulnerabilities detected |
+| Changelog automation workflow hardening | PASS | Added bot-safe step-level skip and policy-aware PR creation fallback to avoid automation failures |
 
 ## Findings Register
 | Severity | Area | Repro | Status | Fix |
 |---|---|---|---|---|
 | None | Public logic | N/A | Closed | No regressions found in audited surfaces |
+| P1 | Workflow reliability | Changelog automation run failed with zero jobs on push events due invalid unquoted YAML scalars in `commit-message`/`title` | Fixed | Quoted YAML scalars, moved bot guard to step-level skip, and added policy-aware PR creation fallback in `.github/workflows/changelog-automation.yml` |
 
 ## Residual Risks / Follow-ups
-- Non-primary automation workflows may fail independently of public runtime logic and should be monitored separately.
+- Changelog automation should be monitored after next push to confirm the policy-aware fallback path behaves as expected under current Actions policy.
 
 ## Attestation
 - This wave is maintenance and hardening only.
