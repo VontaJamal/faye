@@ -12,25 +12,49 @@ permissions:
 
 jobs:
   update-changelog:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
+      - name: Skip automation loops for bot pushes
+        if: github.actor == 'github-actions[bot]'
+        run: echo "Triggered by github-actions[bot]; skipping changelog automation."
+
       - name: Checkout
+        if: github.actor != 'github-actions[bot]'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Update changelog
+        if: github.actor != 'github-actions[bot]'
         run: ./scripts/update-changelog.sh
 
+      - name: Detect workflow PR permission policy
+        if: github.actor != 'github-actions[bot]'
+        id: pr-policy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          response=$(curl -sS \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/permissions/workflow")
+
+          if [[ "$(printf '%s' "${response}" | jq -r '.can_approve_pull_request_reviews')" == "true" ]]; then
+            echo "can_open_pr=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "can_open_pr=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Open changelog pull request
+        if: github.actor != 'github-actions[bot]' && steps.pr-policy.outputs.can_open_pr == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: cx/changelog-auto-${{ github.run_id }}
           base: main
-          commit-message: chore: update changelog
-          title: chore: update changelog
+          commit-message: "chore: update changelog"
+          title: "chore: update changelog"
           body: |
             Automated changelog refresh after a `main` update.
           labels: |
@@ -39,3 +63,7 @@ jobs:
           delete-branch: true
           add-paths: |
             CHANGELOG.md
+
+      - name: Skip PR creation when repository policy blocks actions PRs
+        if: github.actor != 'github-actions[bot]' && steps.pr-policy.outputs.can_open_pr != 'true'
+        run: echo "Repository policy blocks Actions-created PRs; changelog PR creation skipped."
