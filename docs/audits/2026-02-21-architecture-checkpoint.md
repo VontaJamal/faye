@@ -5,35 +5,35 @@ Checkpoint review focused on bug risk, architectural drift, performance pressure
 
 ## Component Map
 1. API control plane:
-- `/Users/vonta/Documents/Code Repos/faye/app/src/api.ts`
+- `./faye/app/src/api.ts`
 - Exposes `/v1/*` local-only routes and static dashboard hosting.
 
 2. Runtime orchestration:
-- `/Users/vonta/Documents/Code Repos/faye/app/src/roundTripCoordinator.ts`
-- `/Users/vonta/Documents/Code Repos/faye/app/src/conversationSessionManager.ts`
-- `/Users/vonta/Documents/Code Repos/faye/app/src/metrics.ts`
+- `./faye/app/src/roundTripCoordinator.ts`
+- `./faye/app/src/conversationSessionManager.ts`
+- `./faye/app/src/metrics.ts`
 
 3. Event bus:
-- `/Users/vonta/Documents/Code Repos/faye/app/src/events.ts`
+- `./faye/app/src/events.ts`
 - Internal pub/sub fanout with recent-event ring buffer.
 
 4. Listener and bridge runtime:
-- `/Users/vonta/Documents/Code Repos/faye/scripts/listener.sh`
-- `/Users/vonta/Documents/Code Repos/faye/app/src/telegramBridge.ts`
+- `./faye/scripts/listener.sh`
+- `./faye/app/src/telegramBridge.ts`
 
 5. Dashboard frontend:
-- `/Users/vonta/Documents/Code Repos/faye/dashboard/src/main.ts`
-- `/Users/vonta/Documents/Code Repos/faye/dashboard/public/*`
+- `./faye/dashboard/src/main.ts`
+- `./faye/dashboard/public/*`
 
 6. Installer and operations:
-- `/Users/vonta/Documents/Code Repos/faye/scripts/install*.sh`
-- `/Users/vonta/Documents/Code Repos/faye/scripts/*-control.sh`
+- `./faye/scripts/install*.sh`
+- `./faye/scripts/*-control.sh`
 
 ## Hotspot Map
 1. High complexity files:
-- `/Users/vonta/Documents/Code Repos/faye/app/src/api.ts` (~973 LOC)
-- `/Users/vonta/Documents/Code Repos/faye/dashboard/src/main.ts` (~1534 LOC)
-- `/Users/vonta/Documents/Code Repos/faye/scripts/listener.sh` (~700 LOC)
+- `./faye/app/src/api.ts` (~973 LOC)
+- `./faye/dashboard/src/main.ts` (~1534 LOC)
+- `./faye/scripts/listener.sh` (~700 LOC)
 
 2. Runtime pressure points:
 - Frequent listener polling during roundtrip wait loops.
@@ -62,7 +62,7 @@ Checkpoint review focused on bug risk, architectural drift, performance pressure
 
 ## Bloat Inventory
 1. Tracked compiled dashboard artifact:
-- `/Users/vonta/Documents/Code Repos/faye/dashboard/public/js/main.js`
+- `./faye/dashboard/public/js/main.js`
 - Decision: keep tracked this cycle; enforce source/artifact consistency via build + tests.
 
 2. Script surface growth:
